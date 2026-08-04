@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Migrar datos — RehabClinic</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .migrar-wrap { max-width: 560px; margin: 60px auto; padding: 0 20px; font-family: sans-serif; }
+    .migrar-card { background: var(--surface, #fff); border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); padding: 32px; }
+    .migrar-card h1 { font-size: 1.3rem; margin-bottom: 4px; }
+    .migrar-card p { color: #6b7280; font-size: 0.9rem; }
+    .migrar-log { background: #111827; color: #d1fae5; font-family: monospace; font-size: 12px;
+      padding: 12px; border-radius: 8px; margin-top: 16px; min-height: 60px; white-space: pre-wrap; }
+    .migrar-paso { margin-top: 20px; }
+    input[type=file] { margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="migrar-wrap">
+  <div class="migrar-card">
+    <h1>Migración de datos a Supabase</h1>
+    <p>Usar <strong>una sola vez</strong>: subí acá el archivo que exportaste con el botón
+       "⬇ Exportar" de la app anterior (basada en localStorage).</p>
+
+    <div class="migrar-paso">
+      <strong>1.</strong> Elegí el archivo <code>rehab_datos_*.json</code> exportado:<br>
+      <input type="file" id="input-archivo" accept=".json">
+    </div>
+
+    <div class="migrar-paso">
+      <strong>2.</strong>
+      <button class="btn btn-primary" id="btn-migrar" disabled>Migrar a Supabase</button>
+    </div>
+
+    <div class="migrar-log" id="log">Esperando sesión e archivo...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/migrar_a_supabase.js"></script>
+<script>
+  const logEl = document.getElementById('log');
+  function log(msg) { logEl.textContent += '\n' + msg; }
+
+  let datosCargados = null;
+
+  (async () => {
+    const usuario = await requireAuth();
+    if (!usuario) return; // requireAuth ya redirige a login.html
+    log(`Sesión: ${usuario.email}`);
+  })();
+
+  document.getElementById('input-archivo').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      datosCargados = JSON.parse(await file.text());
+      log(`Archivo leído: ${file.name}`);
+      document.getElementById('btn-migrar').disabled = false;
+    } catch (err) {
+      log('Error leyendo el archivo: ' + err.message);
+    }
+  });
+
+  document.getElementById('btn-migrar').addEventListener('click', async () => {
+    if (!datosCargados) return;
+    if (!confirm('¿Migrar estos datos a Supabase? Si ya hay datos cargados en Supabase, se van a sobreescribir los que tengan el mismo id/fecha.')) return;
+    document.getElementById('btn-migrar').disabled = true;
+    try {
+      await migrarJSONASupabase(datosCargados, log);
+    } catch (err) {
+      log('✖ Error: ' + err.message);
+    }
+  });
+</script>
+
+</body>
+</html>

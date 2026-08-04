@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agenda del día — Visualizador</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --azul:    #1e3a5f;
+      --azul-m:  #2563eb;
+      --azul-c:  #dbeafe;
+      --gris:    #f1f5f9;
+      --borde:   #e2e8f0;
+      --texto:   #1e293b;
+      --muted:   #64748b;
+      --blanco:  #ffffff;
+      --verde:   #059669;
+      --header-h: 72px;
+      --footer-h: 44px;
+    }
+
+    html, body { height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--gris); color: var(--texto); }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+      background: var(--azul);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 28px; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .h-marca { display: flex; flex-direction: column; gap: 2px; }
+    .h-nombre { color: #fff; font-size: 20px; font-weight: 800; letter-spacing: -.3px; }
+    .h-sub    { color: #94a3b8; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
+
+    .h-fecha-nav { display: flex; align-items: center; gap: 14px; }
+    .btn-dia {
+      background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+      color: #fff; width: 32px; height: 32px; border-radius: 8px;
+      font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    .btn-dia:hover { background: rgba(255,255,255,.22); }
+    .h-fecha-txt { text-align: center; }
+    .h-fecha-dia  { color: #fff; font-size: 18px; font-weight: 700; white-space: nowrap; }
+    .h-fecha-comp { color: #94a3b8; font-size: 11px; margin-top: 1px; text-align: center; }
+
+    .h-derecha { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .reloj { color: #fff; font-size: 22px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+    .refresh-estado { color: #64748b; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+    .refresh-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--verde);
+      animation: pulso 2s ease-in-out infinite;
+    }
+    @keyframes pulso { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Main ────────────────────────────────────────────────────────────── */
+    main {
+      margin-top: var(--header-h);
+      margin-bottom: var(--footer-h);
+      padding: 20px 24px;
+      min-height: calc(100vh - var(--header-h) - var(--footer-h));
+    }
+
+    /* ── Empty state ─────────────────────────────────────────────────────── */
+    .vacio {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 60vh; gap: 16px; color: var(--muted);
+    }
+    .vacio-icono { font-size: 56px; }
+    .vacio-titulo { font-size: 22px; font-weight: 700; color: var(--texto); }
+    .vacio-sub    { font-size: 14px; }
+
+    /* ── Grilla ──────────────────────────────────────────────────────────── */
+    .grilla-wrap { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); background: #fff; }
+
+    table { width: 100%; border-collapse: collapse; min-width: 800px; }
+
+    thead th {
+      background: var(--azul); color: #fff;
+      padding: 10px 14px; font-size: 12px; font-weight: 600;
+      text-align: center; white-space: nowrap;
+      border-right: 1px solid rgba(255,255,255,.12);
+    }
+    thead th:first-child { text-align: left; min-width: 160px; border-radius: 12px 0 0 0; }
+    thead th:last-child  { border-radius: 0 12px 0 0; border-right: none; }
+    thead th .slot-hora  { font-size: 14px; font-weight: 700; }
+    thead th .slot-rango { font-size: 10px; opacity: .65; margin-top: 1px; }
+
+    tbody tr { border-bottom: 1px solid var(--borde); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+
+    /* Columna paciente */
+    .col-pac {
+      padding: 10px 14px;
+      border-right: 1px solid var(--borde);
+    }
+    .pac-apellido { font-size: 13px; font-weight: 700; }
+    .pac-nombre   { font-size: 11px; color: var(--muted); }
+    .pac-grupo    { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-top: 3px; }
+
+    /* Celdas de sesión */
+    td.celda {
+      padding: 0; text-align: center;
+      border-right: 1px solid var(--borde);
+      vertical-align: middle; min-width: 100px;
+    }
+    td.celda:last-child { border-right: none; }
+
+    .sesion-bloque {
+      padding: 7px 8px;
+      border-radius: 6px;
+      margin: 4px;
+      border-left: 3px solid transparent;
+    }
+    .sesion-disc  { font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .sesion-prof  { font-size: 10px; margin-top: 2px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .celda-vacia   { background: transparent; }
+    .celda-bloq    { background: #f8fafc; }
+    .celda-bloq-icono { font-size: 16px; color: #cbd5e1; }
+    .celda-alm { background: #fffbeb; }
+    .celda-alm-icono { font-size: 14px; }
+
+    /* ── Tabs de vista ───────────────────────────────────────────────────── */
+    .vista-tabs {
+      display: flex; gap: 4px; margin-bottom: 16px;
+    }
+    .vista-tab {
+      padding: 7px 18px; border-radius: 8px; border: 1px solid var(--borde);
+      background: #fff; font-size: 13px; font-weight: 600; color: var(--muted);
+      cursor: pointer; transition: all .15s;
+    }
+    .vista-tab:hover { border-color: var(--azul-m); color: var(--azul); }
+    .vista-tab.active { background: var(--azul); color: #fff; border-color: var(--azul); }
+
+    /* ── Lista por profesional ───────────────────────────────────────────── */
+    .prof-lista-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+    .prof-card {
+      background: #fff; border: 1px solid var(--borde); border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); overflow: hidden;
+    }
+    .prof-card-head {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; cursor: pointer;
+      transition: background .12s;
+    }
+    .prof-card-head:hover { background: #f8fafc; }
+    .prof-card.open .prof-card-head { background: #f1f5f9; border-bottom: 1px solid var(--borde); }
+    .prof-avatar {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      background: var(--azul); color: #fff;
+      font-size: 13px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .prof-card-info { flex: 1; min-width: 0; }
+    .prof-card-nombre { font-size: 14px; font-weight: 700; color: var(--texto); }
+    .prof-card-disc   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .prof-card-meta   { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .prof-count-badge {
+      background: var(--azul); color: #fff;
+      font-size: 11px; font-weight: 700;
+      border-radius: 12px; padding: 2px 9px; white-space: nowrap;
+    }
+    .prof-chevron { font-size: 12px; color: var(--muted); transition: transform .15s; }
+    .prof-card.open .prof-chevron { transform: rotate(180deg); }
+    .prof-card-sesiones { display: none; padding: 8px 0; }
+    .prof-card.open .prof-card-sesiones { display: block; }
+    .prof-ses-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 16px; border-bottom: 1px solid #f1f5f9;
+      font-size: 13px;
+    }
+    .prof-ses-row:last-child { border-bottom: none; }
+    .prof-ses-hora { font-weight: 700; color: var(--muted); min-width: 44px; font-size: 12px; }
+    .prof-ses-pac  { flex: 1; font-weight: 600; }
+    .prof-ses-disc {
+      font-size: 11px; font-weight: 700; padding: 2px 7px;
+      border-radius: 5px; white-space: nowrap;
+    }
+
+    /* ── Resumen por profesional (chips, usado debajo de la grilla) ──────── */
+    .resumen-wrap { margin-top: 20px; }
+    .resumen-titulo { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
+    .resumen-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .resumen-chip {
+      display: flex; align-items: center; gap: 8px;
+      background: #fff; border: 1px solid var(--borde);
+      border-radius: 10px; padding: 8px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    .chip-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--azul); color: #fff;
+      font-size: 11px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .chip-info { display: flex; flex-direction: column; gap: 1px; }
+    .chip-nombre { font-size: 12px; font-weight: 700; }
+    .chip-sesiones { font-size: 11px; color: var(--muted); }
+    .chip-disc { font-size: 10px; color: var(--azul-m); font-weight: 600; }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    footer {
+      position: fixed; bottom: 0; left: 0; right: 0; height: var(--footer-h);
+      background: var(--azul); display: flex; align-items: center;
+      justify-content: space-between; padding: 0 28px;
+    }
+    .f-update { color: #94a3b8; font-size: 11px; }
+    .f-update strong { color: #cbd5e1; }
+    .f-countdown { display: flex; align-items: center; gap: 8px; }
+    .countdown-bar-wrap { width: 100px; height: 4px; background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden; }
+    .countdown-bar      { height: 100%; background: var(--verde); border-radius: 2px; transition: width 1s linear; }
+    .countdown-txt      { color: #94a3b8; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+    /* ── Alerta sin datos ─────────────────────────────────────────────────── */
+    .alerta-sin-datos {
+      background: #fef3c7; border: 1px solid #fcd34d;
+      border-radius: 10px; padding: 12px 18px;
+      font-size: 13px; color: #78350f;
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="h-marca">
+    <div class="h-nombre">RehabClinic</div>
+    <div class="h-sub">Agenda del día — Visualizador</div>
+  </div>
+
+  <div class="h-fecha-nav">
+    <button class="btn-dia" id="btn-prev" title="Día anterior">◀</button>
+    <div class="h-fecha-txt">
+      <div class="h-fecha-dia" id="hdr-fecha-dia"></div>
+      <div class="h-fecha-comp" id="hdr-fecha-comp"></div>
+    </div>
+    <button class="btn-dia" id="btn-next" title="Día siguiente">▶</button>
+  </div>
+
+  <div class="h-derecha">
+    <div class="reloj" id="reloj">--:--:--</div>
+    <div class="refresh-estado">
+      <div class="refresh-dot"></div>
+      <span id="refresh-label">Actualizando...</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Contenido ─────────────────────────────────────────────────────────── -->
+<main id="main"></main>
+
+<!-- ── Footer ────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="f-update" id="f-update">Cargando...</div>
+  <div class="f-countdown">
+    <div class="countdown-bar-wrap">
+      <div class="countdown-bar" id="countdown-bar" style="width:100%"></div>
+    </div>
+    <div class="countdown-txt" id="countdown-txt"></div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/config.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  VIEWER — lee desde Supabase (lectura pública, sin login), solo lectura
+// ═══════════════════════════════════════════════════════════════
+
+// Cache local que se refresca cada vez que se vuelve a dibujar la agenda
+let _viewerCache = { pacientes: [], profesionales: [], asignaciones: {}, diasState: {} };
+
+async function _cargarViewerCache() {
+  const [pac, prof, asig, dia] = await Promise.all([
+    supabaseClient.from('pacientes').select('*'),
+    supabaseClient.from('profesionales').select('*'),
+    supabaseClient.from('asignaciones').select('*'),
+    supabaseClient.from('dias_state').select('*')
+  ]);
+  _viewerCache.pacientes     = (pac.data  || []).map(r => r.data);
+  _viewerCache.profesionales = (prof.data || []).map(r => r.data);
+  _viewerCache.asignaciones  = Object.fromEntries((asig.data || []).map(r => [r.fecha, r.sesiones]));
+  _viewerCache.diasState     = Object.fromEntries((dia.data  || []).map(r => [r.fecha, r.data]));
+}
+
+const REFRESH_SEG = 30;
+let fechaVista = hoy();
+let ultimaActualizacion = null;
+let segundosRestantes = REFRESH_SEG;
+
+// ── Helpers ────────────────────────────────────────────────────
+function hoy() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function esc(t) {
+  if (!t) return '';
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function iniciales(p) {
+  if (!p) return '?';
+  return ((p.nombre?.[0]||'') + (p.apellido?.[0]||'')).toUpperCase();
+}
+
+function sumarDia(fecha, n) {
+  const d = new Date(fecha + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+}
+
+function formatFechaLarga(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+
+function formatFechaDia(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const wd = d.toLocaleDateString('es-AR', { weekday:'long' });
+  return wd.charAt(0).toUpperCase() + wd.slice(1);
+}
+
+function formatFechaCorta(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric' });
+}
+
+// ── Reloj ──────────────────────────────────────────────────────
+function tickReloj() {
+  const ahora = new Date();
+  document.getElementById('reloj').textContent =
+    String(ahora.getHours()).padStart(2,'0') + ':' +
+    String(ahora.getMinutes()).padStart(2,'0') + ':' +
+    String(ahora.getSeconds()).padStart(2,'0');
+}
+setInterval(tickReloj, 1000);
+tickReloj();
+
+// ── Countdown ──────────────────────────────────────────────────
+function tickCountdown() {
+  segundosRestantes--;
+  if (segundosRestantes <= 0) {
+    segundosRestantes = REFRESH_SEG;
+    renderAgenda();
+  }
+  const pct = (segundosRestantes / REFRESH_SEG) * 100;
+  document.getElementById('countdown-bar').style.width = pct + '%';
+  document.getElementById('countdown-txt').textContent = 'Actualiza en ' + segundosRestantes + 's';
+}
+setInterval(tickCountdown, 1000);
+
+// ── Navegación de fecha ────────────────────────────────────────
+document.getElementById('btn-prev').addEventListener('click', () => {
+  fechaVista = sumarDia(fechaVista, -1);
+  renderAgenda();
+});
+document.getElementById('btn-next').addEventListener('click', () => {
+  fechaVista = sumarDia(fechaVista, 1);
+  renderAgenda();
+});
+
+let vistaActiva = 'grilla'; // 'grilla' | 'profesionales'
+
+function cambiarVista(v) {
+  vistaActiva = v;
+  renderAgenda();
+}
+
+function toggleProfCard(id) {
+  const card = document.getElementById('prof-card-' + id);
+  if (card) card.classList.toggle('open');
+}
+
+// ── Render principal ───────────────────────────────────────────
+async function renderAgenda() {
+  await _cargarViewerCache();
+
+  ultimaActualizacion = new Date();
+  segundosRestantes = REFRESH_SEG;
+
+  document.getElementById('hdr-fecha-dia').textContent = formatFechaDia(fechaVista);
+  document.getElementById('hdr-fecha-comp').textContent = formatFechaCorta(fechaVista);
+  document.getElementById('refresh-label').textContent = 'En vivo';
+
+  const h = String(ultimaActualizacion.getHours()).padStart(2,'0');
+  const m = String(ultimaActualizacion.getMinutes()).padStart(2,'0');
+  document.getElementById('f-update').innerHTML =
+    `Última actualización: <strong>${h}:${m}</strong>`;
+
+  const pacientes     = _viewerCache.pacientes;
+  const profesionales = _viewerCache.profesionales;
+  const todasAsig     = _viewerCache.asignaciones;
+  const sesionesHoy   = todasAsig[fechaVista] || [];
+  const diasState     = _viewerCache.diasState[fechaVista] || {};
+  const bloqsPac      = diasState.bloquesPacientes || {};
+
+  const pacsActivos = pacientes.filter(p => p.activo !== false);
+  const profsMap    = Object.fromEntries(profesionales.map(p => [p.id, p]));
+  const main = document.getElementById('main');
+
+  if (pacsActivos.length === 0) {
+    main.innerHTML = `<div class="vacio">
+      <div class="vacio-icono">👥</div>
+      <div class="vacio-titulo">Sin datos</div>
+      <div class="vacio-sub">Abrí la app principal para cargar pacientes y profesionales.</div>
+    </div>`;
+    return;
+  }
+
+  const esHoy = fechaVista === hoy();
+  let html = '';
+
+  if (!esHoy) {
+    html += `<div class="alerta-sin-datos">
+      <span>📅</span>
+      Estás viendo el <strong>${formatFechaLarga(fechaVista)}</strong>.
+      <a href="#" onclick="fechaVista=hoy();renderAgenda();return false" style="color:#92400e;font-weight:700;margin-left:8px">Ver hoy</a>
+    </div>`;
+  }
+
+  if (sesionesHoy.length === 0) {
+    html += `<div class="vacio">
+      <div class="vacio-icono">📋</div>
+      <div class="vacio-titulo">Sin agenda para este día</div>
+      <div class="vacio-sub">La agenda aún no fue generada desde la app principal.</div>
+    </div>`;
+    main.innerHTML = html;
+    return;
+  }
+
+  // Tabs de vista
+  html += `<div class="vista-tabs">
+    <button class="vista-tab${vistaActiva === 'grilla' ? ' active' : ''}" onclick="cambiarVista('grilla')">Por paciente</button>
+    <button class="vista-tab${vistaActiva === 'profesionales' ? ' active' : ''}" onclick="cambiarVista('profesionales')">Por profesional</button>
+  </div>`;
+
+  if (vistaActiva === 'profesionales') {
+    html += renderPorProfesional(sesionesHoy, profsMap, pacientes);
+    main.innerHTML = html;
+    return;
+  }
+
+  // ── Vista grilla (por paciente) ──────────────────────────────
+  const slotsVis = SLOTS.filter(s => !s.esAlmuerzo || pacsActivos.some(p => p.requiereAlmuerzoTerapeutico));
+
+  html += `<div class="grilla-wrap"><table>
+    <thead><tr>
+      <th>Paciente</th>
+      ${slotsVis.map(s => `<th>
+        <div class="slot-hora">${s.inicio}</div>
+        <div class="slot-rango">${s.label.replace('–','→')}</div>
+      </th>`).join('')}
+    </tr></thead>
+    <tbody>`;
+
+  pacsActivos
+    .sort((a, b) => (a.apellido||'').localeCompare(b.apellido||''))
+    .forEach(pac => {
+      const misSes = sesionesHoy.filter(s => s.pacienteId === pac.id);
+      const bloqsPacHoy = new Set([
+        ...(bloqsPac[pac.id] || []).map(b => b.slotId),
+        ...(pac.bloqueosPermanentes || []).map(b => b.slotId)
+      ]);
+      const grupo = GRUPOS_DIAGNOSTICOS?.[pac.grupo];
+
+      html += `<tr>
+        <td class="col-pac">
+          <div class="pac-apellido">${esc(pac.apellido)}</div>
+          <div class="pac-nombre">${esc(pac.nombre)}</div>
+          ${grupo ? `<span class="pac-grupo" style="background:${grupo.bg};color:${grupo.color};border:1px solid ${grupo.border}">${grupo.label}</span>` : ''}
+        </td>`;
+
+      slotsVis.forEach(slot => {
+        const sesion = misSes.find(s => s.slotId === slot.id);
+        const bloq   = bloqsPacHoy.has(slot.id) && !sesion;
+        if (sesion) {
+          const prof = profsMap[sesion.profesionalId];
+          const disc = DISCIPLINAS[sesion.disciplina];
+          html += `<td class="celda">
+            <div class="sesion-bloque" style="background:${disc?.bg||'#f0f0f0'};border-left-color:${disc?.color||'#aaa'}">
+              <div class="sesion-disc" style="color:${disc?.color||'#333'}">${esc(disc?.corto||sesion.disciplina)}</div>
+              <div class="sesion-prof">${esc(prof ? prof.apellido : '—')}</div>
+            </div>
+          </td>`;
+        } else if (bloq) {
+          html += `<td class="celda celda-bloq"><div class="celda-bloq-icono">🚫</div></td>`;
+        } else if (slot.esAlmuerzo) {
+          html += `<td class="celda celda-alm"><div class="celda-alm-icono">🍽</div></td>`;
+        } else {
+          html += `<td class="celda celda-vacia"></td>`;
+        }
+      });
+      html += `</tr>`;
+    });
+
+  html += `</tbody></table></div>`;
+  main.innerHTML = html;
+}
+
+// ── Vista por profesional ──────────────────────────────────────
+function renderPorProfesional(sesionesHoy, profsMap, pacientes) {
+  const pacsMap = Object.fromEntries(pacientes.map(p => [p.id, p]));
+
+  const profsConSesiones = [...new Set(sesionesHoy.map(s => s.profesionalId))]
+    .map(profId => {
+      const prof = profsMap[profId];
+      if (!prof) return null;
+      const susSes = sesionesHoy
+        .filter(s => s.profesionalId === profId)
+        .sort((a, b) => {
+          const ia = SLOTS.findIndex(s => s.id === a.slotId);
+          const ib = SLOTS.findIndex(s => s.id === b.slotId);
+          return ia - ib;
+        });
+      const discs = [...new Set(susSes.map(s => DISCIPLINAS[s.disciplina]?.label || s.disciplina))];
+      return { prof, sesiones: susSes, discs };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.prof.apellido||'').localeCompare(b.prof.apellido||''));
+
+  let html = `<div class="prof-lista-grid">`;
+
+  profsConSesiones.forEach(({ prof, sesiones, discs }) => {
+    const sesHtml = sesiones.map(s => {
+      const slot = SLOTS.find(sl => sl.id === s.slotId);
+      const pac  = pacsMap[s.pacienteId];
+      const disc = DISCIPLINAS[s.disciplina];
+      return `<div class="prof-ses-row">
+        <span class="prof-ses-hora">${esc(slot?.inicio || '')}</span>
+        <span class="prof-ses-pac">${esc(pac?.apellido || '—')}${pac?.nombre ? ', ' + esc(pac.nombre) : ''}</span>
+        <span class="prof-ses-disc" style="background:${disc?.bg||'#e5e7eb'};color:${disc?.color||'#374151'}">${esc(disc?.corto || s.disciplina)}</span>
+      </div>`;
+    }).join('');
+
+    html += `<div class="prof-card" id="prof-card-${esc(prof.id)}">
+      <div class="prof-card-head" onclick="toggleProfCard('${esc(prof.id)}')">
+        <div class="prof-avatar">${esc(iniciales(prof))}</div>
+        <div class="prof-card-info">
+          <div class="prof-card-nombre">${esc(prof.apellido)}${prof.nombre ? ', ' + esc(prof.nombre) : ''}</div>
+          <div class="prof-card-disc">${esc(discs.join(' · '))}</div>
+        </div>
+        <div class="prof-card-meta">
+          <span class="prof-count-badge">${sesiones.length} ses.</span>
+          <span class="prof-chevron">▼</span>
+        </div>
+      </div>
+      <div class="prof-card-sesiones">${sesHtml}</div>
+    </div>`;
+  });
+
+  html += `</div>`;
+  return html;
+}
+
+// ── Arranque ───────────────────────────────────────────────────
+renderAgenda();
+</script>
+</body>
+</html>

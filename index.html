@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Asignación de Terapias</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Barra lateral ───────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1>RehabClinic</h1>
+      <div class="sidebar-subtitle">Asignación de terapias</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-btn active" data-vista="grilla"
+        data-tooltip="Vista principal: grilla de sesiones del día por paciente. Generá, editá y reorganizá sesiones arrastrándolas." data-tooltip-pos="right">
+        <span class="nav-icon">📅</span>
+        <span>Agenda del día</span>
+      </button>
+      <button class="nav-btn nav-sub" data-vista="lista-prof"
+        data-tooltip="Mismas sesiones del día vistas por profesional en lugar de por paciente." data-tooltip-pos="right">
+        <span class="nav-icon">📋</span>
+        <span>Lista por profesional</span>
+      </button>
+      <button class="nav-btn" data-vista="disponibilidad"
+        data-tooltip="Indicá qué profesionales asisten hoy, si vienen a la mañana, tarde o día completo, y quiénes quedan excluidos de la asignación automática." data-tooltip-pos="right">
+        <span class="nav-icon">✅</span>
+        <span>Disponibilidad</span>
+      </button>
+      <button class="nav-btn" data-vista="pacientes"
+        data-tooltip="Gestioná el padrón de pacientes: diagnóstico, prescripciones de terapias, bloqueos de horario y prioridad de asignación." data-tooltip-pos="right">
+        <span class="nav-icon">👥</span>
+        <span>Pacientes</span>
+      </button>
+      <button class="nav-btn nav-sub" data-vista="banos"
+        data-tooltip="Configurá los horarios de baño semanales de cada paciente para que el algoritmo no les asigne sesiones en esos slots." data-tooltip-pos="right">
+        <span class="nav-icon">🛁</span>
+        <span>Horarios de Baño</span>
+      </button>
+      <button class="nav-btn nav-sub" data-vista="egresados"
+        data-tooltip="Pacientes que ya no forman parte de la agenda diaria. Podés reactivarlos en cualquier momento." data-tooltip-pos="right">
+        <span class="nav-icon">🎓</span>
+        <span>Egresados</span>
+      </button>
+      <button class="nav-btn" data-vista="profesionales"
+        data-tooltip="Gestioná el padrón de profesionales: disciplinas, días laborales, horarios disponibles y cuota semanal máxima." data-tooltip-pos="right">
+        <span class="nav-icon">👨‍⚕️</span>
+        <span>Profesionales</span>
+      </button>
+      <button class="nav-btn nav-sub" data-vista="practicantes"
+        data-tooltip="Practicantes: se muestran como disponibles en la agenda pero no reciben asignaciones automáticas." data-tooltip-pos="right">
+        <span class="nav-icon">🎓</span>
+        <span>Practicantes</span>
+      </button>
+      <button class="nav-btn" data-vista="planes"
+        data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
+        <span class="nav-icon">📋</span>
+        <span>Planes semanales</span>
+      </button>
+      <button class="nav-btn" data-vista="metricas"
+        data-tooltip="Indicadores de calidad del scheduling: cobertura, distribución de carga entre profesionales e índices históricos." data-tooltip-pos="right">
+        <span class="nav-icon">📊</span>
+        <span>Métricas</span>
+      </button>
+      <button class="nav-btn" data-vista="historial"
+        data-tooltip="Registro de agendas generadas en días anteriores con su índice de calidad y alertas." data-tooltip-pos="right">
+        <span class="nav-icon">🕐</span>
+        <span>Historial</span>
+      </button>
+      <button class="nav-btn" data-vista="auditoria"
+        data-tooltip="Log de todos los cambios manuales realizados sobre la agenda: movimientos, agregados y eliminaciones." data-tooltip-pos="right">
+        <span class="nav-icon">📝</span>
+        <span>Auditoría</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-actions">
+      <button class="btn btn-secondary" id="btn-datos-ejemplo" style="font-size:11px"
+        data-tooltip="Carga pacientes y profesionales de muestra para explorar la aplicación sin necesidad de ingresar datos reales." data-tooltip-pos="right">
+        🗄 Datos de ejemplo
+      </button>
+    </div>
+
+    <!-- ── Panel de persistencia ──────────────────────────────────────── -->
+    <div class="sidebar-persist">
+      <div class="persist-titulo">Archivo de datos</div>
+      <div id="pers-status" class="pers-status">
+        <span class="pers-dot dot-neutral"></span> Solo en memoria local
+      </div>
+      <div class="persist-botones">
+        <button class="btn btn-sm btn-secondary persist-btn"
+          onclick="exportarJSON()"
+          data-tooltip="Descarga todos los datos (pacientes, profesionales, agendas) como un archivo JSON para hacer backup." data-tooltip-pos="right">
+          ⬇ Exportar
+        </button>
+        <button class="btn btn-sm btn-secondary persist-btn"
+          onclick="importarJSON()"
+          data-tooltip="Carga datos desde un archivo JSON exportado previamente. Reemplaza los datos actuales." data-tooltip-pos="right">
+          ⬆ Importar
+        </button>
+        <button class="btn btn-sm btn-secondary persist-btn"
+          id="btn-vincular-archivo"
+          data-tooltip="Vincula un archivo local para que los datos se guarden automáticamente al hacer cambios. Solo Chrome y Edge." data-tooltip-pos="right">
+          🔗 Vincular archivo
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Panel de presencia (usuarios conectados) ──────────────────────── -->
+    <div class="sidebar-presencia">
+      <div class="persist-titulo">Conectados ahora</div>
+      <div id="presencia-lista" class="presencia-lista"></div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div id="sidebar-fecha"></div>
+      <button class="btn btn-sm btn-secondary" id="btn-cerrar-sesion" style="margin-top:8px;width:100%;">
+        Cerrar sesión
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Contenido principal ─────────────────────────────────────────────── -->
+  <main class="main-content">
+    <div id="banner-coedicion-wrap"></div>
+    <div id="vista">
+      <!-- Renderizado por app.js -->
+    </div>
+  </main>
+
+</div>
+
+<!-- ── Modal ───────────────────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="hidden">
+  <div id="modal-box"></div>
+</div>
+
+<!-- ── Scripts ─────────────────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script src="js/persistence.js"></script>
+<script src="js/presence.js"></script>
+<script src="js/algorithm.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pdf.js"></script>
+
+</body>
+</html>
