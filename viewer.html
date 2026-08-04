@@ -181,6 +181,31 @@
       font-size: 11px; font-weight: 700; padding: 2px 7px;
       border-radius: 5px; white-space: nowrap;
     }
+    .prof-ses-row-click { cursor: pointer; transition: background .12s; }
+    .prof-ses-row-click:hover { background: #f8fafc; }
+
+    /* ── Modal: agenda del paciente ───────────────────────────────────────── */
+    #modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.5);
+      z-index: 300; display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    #modal-overlay.hidden { display: none; }
+    #modal-box {
+      background: #fff; border-radius: 12px; width: 100%; max-width: 420px;
+      max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.3);
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px; border-bottom: 1px solid var(--borde);
+    }
+    .modal-header h3 { font-size: 15px; font-weight: 700; }
+    .modal-close {
+      background: none; border: none; font-size: 18px; cursor: pointer;
+      color: var(--muted); line-height: 1;
+    }
+    .modal-body { padding: 4px 0; }
+    .modal-vacio { padding: 18px; color: var(--muted); font-size: 13px; }
 
     /* ── Resumen por profesional (chips, usado debajo de la grilla) ──────── */
     .resumen-wrap { margin-top: 20px; }
@@ -320,6 +345,11 @@
   </div>
 </footer>
 
+<!-- ── Modal: agenda del paciente ────────────────────────────────────────── -->
+<div id="modal-overlay" class="hidden">
+  <div id="modal-box"></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase-config.js"></script>
 <script src="js/supabase-client.js"></script>
@@ -437,6 +467,52 @@ function togglePacCard(id) {
   const card = document.getElementById('pac-card-' + id);
   if (card) card.classList.toggle('open');
 }
+
+// ── Modal: agenda completa del paciente ─────────────────────────
+function abrirModalPaciente(pacienteId) {
+  const pac = _viewerCache.pacientes.find(p => p.id === pacienteId);
+  if (!pac) return;
+
+  const profsMap    = Object.fromEntries(_viewerCache.profesionales.map(p => [p.id, p]));
+  const sesionesHoy = _viewerCache.asignaciones[fechaVista] || [];
+  const misSes = sesionesHoy
+    .filter(s => s.pacienteId === pacienteId)
+    .sort((a, b) => {
+      const ia = SLOTS.findIndex(s => s.id === a.slotId);
+      const ib = SLOTS.findIndex(s => s.id === b.slotId);
+      return ia - ib;
+    });
+
+  const filasHtml = misSes.length
+    ? misSes.map(s => {
+        const slot = SLOTS.find(sl => sl.id === s.slotId);
+        const prof = profsMap[s.profesionalId];
+        const disc = DISCIPLINAS[s.disciplina];
+        return `<div class="prof-ses-row">
+          <span class="prof-ses-hora">${esc(slot?.inicio || '')}</span>
+          <span class="prof-ses-pac">${esc(prof?.apellido || '—')}${prof?.nombre ? ', ' + esc(prof.nombre) : ''}</span>
+          <span class="prof-ses-disc" style="background:${disc?.bg||'#e5e7eb'};color:${disc?.color||'#374151'}">${esc(disc?.corto || s.disciplina)}</span>
+        </div>`;
+      }).join('')
+    : `<div class="modal-vacio">Sin sesiones agendadas para este día.</div>`;
+
+  document.getElementById('modal-box').innerHTML = `
+    <div class="modal-header">
+      <h3>${esc(pac.apellido)}${pac.nombre ? ', ' + esc(pac.nombre) : ''}</h3>
+      <button class="modal-close" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">${filasHtml}</div>
+  `;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function cerrarModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) cerrarModal();
+});
 
 // ── Render principal ───────────────────────────────────────────
 async function renderAgenda() {
@@ -599,7 +675,7 @@ function renderPorProfesional(sesionesHoy, profsMap, pacientes) {
       const slot = SLOTS.find(sl => sl.id === s.slotId);
       const pac  = pacsMap[s.pacienteId];
       const disc = DISCIPLINAS[s.disciplina];
-      return `<div class="prof-ses-row">
+      return `<div class="prof-ses-row prof-ses-row-click" onclick="event.stopPropagation();abrirModalPaciente('${esc(s.pacienteId)}')">
         <span class="prof-ses-hora">${esc(slot?.inicio || '')}</span>
         <span class="prof-ses-pac">${esc(pac?.apellido || '—')}${pac?.nombre ? ', ' + esc(pac.nombre) : ''}</span>
         <span class="prof-ses-disc" style="background:${disc?.bg||'#e5e7eb'};color:${disc?.color||'#374151'}">${esc(disc?.corto || s.disciplina)}</span>
