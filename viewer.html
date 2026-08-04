@@ -262,7 +262,7 @@
       .countdown-bar-wrap { width: 56px; }
       .countdown-txt { font-size: 10px; }
 
-      .vista-tabs { gap: 6px; margin-bottom: 12px; }
+      .vista-tabs { gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
       .vista-tab  { padding: 6px 12px; font-size: 12px; }
 
       /* La grilla horaria sigue con scroll horizontal (grilla-wrap ya lo tiene) */
@@ -421,7 +421,7 @@ document.getElementById('btn-next').addEventListener('click', () => {
   renderAgenda();
 });
 
-let vistaActiva = 'grilla'; // 'grilla' | 'profesionales'
+let vistaActiva = 'grilla'; // 'grilla' | 'profesionales' | 'pacientes'
 
 function cambiarVista(v) {
   vistaActiva = v;
@@ -430,6 +430,11 @@ function cambiarVista(v) {
 
 function toggleProfCard(id) {
   const card = document.getElementById('prof-card-' + id);
+  if (card) card.classList.toggle('open');
+}
+
+function togglePacCard(id) {
+  const card = document.getElementById('pac-card-' + id);
   if (card) card.classList.toggle('open');
 }
 
@@ -492,12 +497,19 @@ async function renderAgenda() {
 
   // Tabs de vista
   html += `<div class="vista-tabs">
-    <button class="vista-tab${vistaActiva === 'grilla' ? ' active' : ''}" onclick="cambiarVista('grilla')">Por paciente</button>
+    <button class="vista-tab${vistaActiva === 'grilla' ? ' active' : ''}" onclick="cambiarVista('grilla')">Grilla</button>
+    <button class="vista-tab${vistaActiva === 'pacientes' ? ' active' : ''}" onclick="cambiarVista('pacientes')">Por paciente</button>
     <button class="vista-tab${vistaActiva === 'profesionales' ? ' active' : ''}" onclick="cambiarVista('profesionales')">Por profesional</button>
   </div>`;
 
   if (vistaActiva === 'profesionales') {
     html += renderPorProfesional(sesionesHoy, profsMap, pacientes);
+    main.innerHTML = html;
+    return;
+  }
+
+  if (vistaActiva === 'pacientes') {
+    html += renderPorPaciente(sesionesHoy, profsMap, pacsActivos);
     main.innerHTML = html;
     return;
   }
@@ -599,6 +611,58 @@ function renderPorProfesional(sesionesHoy, profsMap, pacientes) {
         <div class="prof-avatar">${esc(iniciales(prof))}</div>
         <div class="prof-card-info">
           <div class="prof-card-nombre">${esc(prof.apellido)}${prof.nombre ? ', ' + esc(prof.nombre) : ''}</div>
+          <div class="prof-card-disc">${esc(discs.join(' · '))}</div>
+        </div>
+        <div class="prof-card-meta">
+          <span class="prof-count-badge">${sesiones.length} ses.</span>
+          <span class="prof-chevron">▼</span>
+        </div>
+      </div>
+      <div class="prof-card-sesiones">${sesHtml}</div>
+    </div>`;
+  });
+
+  html += `</div>`;
+  return html;
+}
+
+// ── Vista por paciente (cards, mismo formato que "Por profesional") ─────
+function renderPorPaciente(sesionesHoy, profsMap, pacsActivos) {
+  const pacsConSesiones = pacsActivos
+    .map(pac => {
+      const susSes = sesionesHoy
+        .filter(s => s.pacienteId === pac.id)
+        .sort((a, b) => {
+          const ia = SLOTS.findIndex(s => s.id === a.slotId);
+          const ib = SLOTS.findIndex(s => s.id === b.slotId);
+          return ia - ib;
+        });
+      if (susSes.length === 0) return null;
+      const discs = [...new Set(susSes.map(s => DISCIPLINAS[s.disciplina]?.label || s.disciplina))];
+      return { pac, sesiones: susSes, discs };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.pac.apellido||'').localeCompare(b.pac.apellido||''));
+
+  let html = `<div class="prof-lista-grid">`;
+
+  pacsConSesiones.forEach(({ pac, sesiones, discs }) => {
+    const sesHtml = sesiones.map(s => {
+      const slot = SLOTS.find(sl => sl.id === s.slotId);
+      const prof = profsMap[s.profesionalId];
+      const disc = DISCIPLINAS[s.disciplina];
+      return `<div class="prof-ses-row">
+        <span class="prof-ses-hora">${esc(slot?.inicio || '')}</span>
+        <span class="prof-ses-pac">${esc(prof?.apellido || '—')}${prof?.nombre ? ', ' + esc(prof.nombre) : ''}</span>
+        <span class="prof-ses-disc" style="background:${disc?.bg||'#e5e7eb'};color:${disc?.color||'#374151'}">${esc(disc?.corto || s.disciplina)}</span>
+      </div>`;
+    }).join('');
+
+    html += `<div class="prof-card" id="pac-card-${esc(pac.id)}">
+      <div class="prof-card-head" onclick="togglePacCard('${esc(pac.id)}')">
+        <div class="prof-avatar">${esc(iniciales(pac))}</div>
+        <div class="prof-card-info">
+          <div class="prof-card-nombre">${esc(pac.apellido)}${pac.nombre ? ', ' + esc(pac.nombre) : ''}</div>
           <div class="prof-card-disc">${esc(discs.join(' · '))}</div>
         </div>
         <div class="prof-card-meta">
