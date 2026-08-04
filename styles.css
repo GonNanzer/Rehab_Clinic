@@ -60,6 +60,31 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   box-shadow: 4px 0 24px rgba(0,0,0,0.35);
 }
 
+/* Botón hamburguesa: solo existe para mobile (ver media query), en desktop
+   el sidebar se expande con :hover y este botón no hace falta. */
+.sidebar-toggle-btn {
+  display: none;
+  width: 40px;
+  height: 40px;
+  margin: 8px auto 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #f8fafc;
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sidebar-toggle-btn:hover { background: var(--sidebar-hover); }
+
+#sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 150;
+}
+
 .sidebar-header { padding: 20px 16px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .sidebar-header h1 { font-size: 16px; font-weight: 700; color: #f8fafc; letter-spacing: -0.3px; white-space: nowrap; }
 .sidebar-subtitle { font-size: 11px; color: var(--sidebar-text-muted); margin-top: 2px; white-space: nowrap; }
@@ -608,6 +633,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 }
 
 /* Tabla plan */
+.tabla-plan-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tabla-plan { width: 100%; border-collapse: collapse; }
 .tabla-plan th, .tabla-plan td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; }
 .tabla-plan th { font-size: 12px; font-weight: 600; color: var(--text-muted); }
@@ -2262,13 +2288,57 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 /* ── Responsive básico ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 56px; min-width: 56px; }
+  .sidebar:hover { width: 56px; box-shadow: none; } /* el hover de mouse no aplica en touch; se ignora */
   .sidebar-header, .sidebar-subtitle, .nav-btn span:not(.nav-icon), .sidebar-footer { display: none; }
   .nav-btn { justify-content: center; padding: 10px; }
+  .sidebar-toggle-btn { display: flex; align-items: center; justify-content: center; }
+
+  /* Sidebar como drawer: se abre por tap (clase .mobile-open desde app.js),
+     no por :hover, que no existe en touch. */
+  .sidebar.mobile-open {
+    width: min(78vw, 260px);
+    box-shadow: 6px 0 24px rgba(0,0,0,0.35);
+  }
+  .sidebar.mobile-open .sidebar-header,
+  .sidebar.mobile-open .sidebar-subtitle,
+  .sidebar.mobile-open .nav-btn span:not(.nav-icon),
+  .sidebar.mobile-open .sidebar-footer { display: block; }
+  .sidebar.mobile-open .nav-btn { justify-content: flex-start; padding: 9px 12px; }
+  .sidebar.mobile-open .sidebar-header,
+  .sidebar.mobile-open .sidebar-subtitle,
+  .sidebar.mobile-open .nav-btn > span:not(.nav-icon),
+  .sidebar.mobile-open .sidebar-footer,
+  .sidebar.mobile-open .sidebar-actions,
+  .sidebar.mobile-open .sidebar-persist,
+  .sidebar.mobile-open .sidebar-presencia { opacity: 1; }
+
+  .sidebar.mobile-open ~ #sidebar-backdrop { display: block; }
+
   .disp-grid { grid-template-columns: 1fr; }
   .metricas-resumen { grid-template-columns: repeat(2,1fr); }
   .metricas-columnas { grid-template-columns: 1fr; }
   .form-row-2 { grid-template-columns: 1fr; }
   .planes-layout { grid-template-columns: 1fr; }
+
+  /* Formularios más angostos: menos padding para ganar ancho útil */
+  .modal-body { padding: 14px; }
+  .planes-editor { padding: 14px; }
+
+  /* Fila de "agregar bloqueo" del formulario de paciente: apilada */
+  .bloq-perm-agregar { flex-direction: column; align-items: stretch; }
+  .bloq-perm-agregar select, .bloq-perm-agregar input { width: 100%; }
+
+  /* Footer del editor de planes: apilado, el input de "guardado por" a ancho completo */
+  .plan-editor-footer { flex-direction: column; align-items: stretch; }
+  .plan-guardado-por { flex-direction: column; align-items: stretch; }
+  #plan-modificado-por { width: 100% !important; }
+
+  /* Grilla de horarios del profesional: targets táctiles más grandes */
+  .asist-dia-col, .asist-dia-label { width: 50px; min-width: 50px; }
+  .asist-h-label { width: 38px; min-width: 38px; }
+  .asist-hora-cell { width: 38px; min-width: 38px; }
+  .asist-hora-lbl { width: 38px; height: 34px; line-height: 34px; }
+  .asist-grid { -webkit-overflow-scrolling: touch; }
 }
 
 /* ── Sistema de tooltips ──────────────────────────────────────────────────────

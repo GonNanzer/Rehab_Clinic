@@ -128,6 +128,7 @@ function navegarA(vista) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === vista));
   renderVista();
   if (typeof actualizarVistaPresencia === 'function') actualizarVistaPresencia(vista);
+  document.querySelector('.sidebar')?.classList.remove('mobile-open'); // cerrar el drawer en mobile al navegar
 }
 
 function renderVista() {
@@ -3599,6 +3600,7 @@ function vistaPlanes() {
       <strong>Ses./semana:</strong> el algoritmo las distribuye entre los días disponibles.
       <strong>Máx/día:</strong> techo opcional para evitar concentración en un solo día.
     </div>
+    <div class="tabla-plan-wrap">
     <table class="tabla-plan">
       <thead><tr>
         <th>Disciplina</th>
@@ -3635,7 +3637,7 @@ function vistaPlanes() {
     </tr>`;
   });
 
-  editorHtml += `</tbody></table>
+  editorHtml += `</tbody></table></div>
     <div class="plan-editor-footer">
       <div class="plan-guardado-por">
         <label style="font-size:12px;color:var(--text-muted)">Guardado por</label>
@@ -4548,6 +4550,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Navegación
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => navegarA(btn.dataset.vista));
+  });
+
+  // Sidebar en mobile: se abre/cierra por tap (no depende de :hover)
+  document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
+    document.querySelector('.sidebar')?.classList.toggle('mobile-open');
+  });
+  document.getElementById('sidebar-backdrop')?.addEventListener('click', () => {
+    document.querySelector('.sidebar')?.classList.remove('mobile-open');
   });
 
   // Modal: cerrar al hacer click fuera
