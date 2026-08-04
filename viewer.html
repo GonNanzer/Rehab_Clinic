@@ -224,6 +224,59 @@
       margin-bottom: 16px;
       display: flex; align-items: center; gap: 10px;
     }
+
+    /* ── Responsive (teléfono) ───────────────────────────────────────────────
+       Pensado originalmente para un monitor/TV fijo (header de 3 columnas,
+       padding generoso). En una pantalla angosta el header se envuelve en
+       2 filas y se achican los elementos para que entre todo sin recortarse. */
+    @media (max-width: 640px) {
+      :root { --header-h: 112px; --footer-h: 40px; }
+
+      header {
+        height: auto;
+        min-height: var(--header-h);
+        flex-wrap: wrap;
+        row-gap: 8px;
+        padding: 10px 14px;
+      }
+      .h-marca   { order: 1; }
+      .h-derecha { order: 2; }
+      .h-fecha-nav {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+        gap: 10px;
+      }
+      .h-sub    { display: none; } /* subtítulo no crítico, ahorra espacio */
+      .h-nombre { font-size: 16px; }
+      .reloj    { font-size: 16px; }
+      .btn-dia  { width: 28px; height: 28px; font-size: 14px; }
+      .h-fecha-dia  { font-size: 14px; }
+      .h-fecha-comp { font-size: 10px; }
+      .refresh-estado { font-size: 10px; }
+
+      main { padding: 10px; }
+
+      footer { padding: 0 14px; }
+      .f-update { font-size: 10px; }
+      .countdown-bar-wrap { width: 56px; }
+      .countdown-txt { font-size: 10px; }
+
+      .vista-tabs { gap: 6px; margin-bottom: 12px; }
+      .vista-tab  { padding: 6px 12px; font-size: 12px; }
+
+      /* La grilla horaria sigue con scroll horizontal (grilla-wrap ya lo tiene) */
+      td.celda { min-width: 84px; }
+      thead th:first-child { min-width: 130px; }
+      .sesion-bloque { padding: 5px 6px; margin: 3px; }
+      .sesion-disc { font-size: 10px; }
+      .sesion-prof { font-size: 9px; }
+
+      .prof-lista-grid { grid-template-columns: 1fr; }
+      .vacio { min-height: 45vh; }
+      .vacio-icono { font-size: 40px; }
+      .vacio-titulo { font-size: 18px; }
+    }
   </style>
 </head>
 <body>
