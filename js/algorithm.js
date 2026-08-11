@@ -1580,6 +1580,7 @@ function rellenarEspaciosVaciosAuto(fecha) {
   const profsDisponibles = _profsDisponiblesDelDia(fecha);
   const todosPacientes = Pacientes.activos();
   const semana = limitesDeSemana(fecha);
+  const diaActual = _weekday(fecha);
 
   let sesiones = [...Asignaciones.delDia(fecha)];
   if (!sesiones.length) return { sesionesAgregadas: 0, detalles: [] };
@@ -1593,6 +1594,7 @@ function rellenarEspaciosVaciosAuto(fecha) {
   const detalles = [];
 
   pacientesOrdenados.forEach(pac => {
+    if (pac.esAmbulatorio && !(pac.diasAsistencia || []).includes(diaActual)) return;
     const plan = Planes.delPaciente(pac.id);
     const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
     if (discsOrdenadas.length === 0) return;
@@ -1648,6 +1650,7 @@ function opcionesParaHueco(fecha, pacienteId, slotId) {
 
   const pac = Pacientes.porId(pacienteId);
   if (!pac || patientSlots[pacienteId]?.[slotId]) return [];
+  if (pac.esAmbulatorio && !(pac.diasAsistencia || []).includes(_weekday(fecha))) return [];
 
   const plan = Planes.delPaciente(pacienteId);
   const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
