@@ -1443,6 +1443,234 @@ function mejoraLocal(fecha) {
   return { sesionesAgregadas, swapsRealizados, detalles };
 }
 
+// ─── Relleno de espacios vacíos ────────────────────────────────────────────────
+// Después de generar la agenda suelen quedar slots libres para pacientes que
+// tienen disciplinas de su plan sin cubrir, con profesionales disponibles en
+// ese horario. Estas funciones detectan esos huecos y los completan — de
+// forma automática (elige sola la mejor opción) o interactiva (recorre los
+// huecos uno por uno para que el operador decida). Reutilizan intentarAsignar,
+// así heredan todas las restricciones duras y blandas del motor principal.
+
+// Arma profSlotsHoy/patientSlots aplicando los mismos bloqueos que
+// generarAgenda/mejoraLocal, superponiendo las sesiones ya existentes.
+function _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacientes) {
+  const estado = DiasState.delDia(fecha);
+  const diaActual = _weekday(fecha);
+  const profSlotsHoy = {};
+  const patientSlots = {};
+  profsDisponibles.forEach(p => { profSlotsHoy[p.id] = {}; });
+  todosPacientes.forEach(p => { patientSlots[p.id] = {}; });
+
+  const bloqueos = estado.bloquesPacientes || {};
+  for (const pacId in bloqueos) {
+    if (patientSlots[pacId]) {
+      (bloqueos[pacId] || []).forEach(b => { patientSlots[pacId][b.slotId] = `BLOQUEADO:${b.motivo}`; });
+    }
+  }
+  todosPacientes.forEach(p => {
+    (p.bloqueosPermanentes || []).forEach(b => {
+      if (patientSlots[p.id] && !patientSlots[p.id][b.slotId]) patientSlots[p.id][b.slotId] = `BLOQ_PERM:${b.motivo}`;
+    });
+  });
+  const bloqueosProf = estado.bloqueosProfesionales || {};
+  for (const profId in bloqueosProf) {
+    if (profSlotsHoy[profId]) {
+      (bloqueosProf[profId] || []).forEach(b => {
+        if (!profSlotsHoy[profId][b.slotId]) profSlotsHoy[profId][b.slotId] = `BLOQ_PROF:${b.motivo || ''}`;
+      });
+    }
+  }
+  todosPacientes.forEach(p => {
+    if (!p.esAmbulatorio || !p.slotIngreso || !p.slotEgreso) return;
+    if (!(p.diasAsistencia || []).includes(diaActual)) return;
+    const iIng = SLOTS.findIndex(s => s.id === p.slotIngreso);
+    const iEgr = SLOTS.findIndex(s => s.id === p.slotEgreso);
+    if (iIng < 0 || iEgr < 0) return;
+    SLOTS.forEach((s, i) => {
+      if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id]) patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
+    });
+  });
+  todosPacientes.forEach(p => {
+    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
+      patientSlots[p.id]['slot_12'] = 'ALMUERZO';
+  });
+  todosPacientes.forEach(p => {
+    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
+  });
+
+  sesionesHoy.forEach(s => {
+    if (patientSlots[s.pacienteId]) patientSlots[s.pacienteId][s.slotId] = s.id;
+    if (profSlotsHoy[s.profesionalId]) {
+      const ex = profSlotsHoy[s.profesionalId][s.slotId];
+      profSlotsHoy[s.profesionalId][s.slotId] = ex ? [ex, s.id] : s.id;
+    }
+  });
+
+  return { profSlotsHoy, patientSlots };
+}
+
+// Disciplinas del plan de un paciente, ordenadas por cuánto le falta esta
+// semana (la más atrasada respecto del objetivo semanal, primero).
+function _discsPlanOrdenadasPorDeficit(pac, plan, fecha) {
+  const semana = limitesDeSemana(fecha);
+  const sessSemana = Asignaciones.delPacienteEnSemana(pac.id, semana.inicio, semana.fin);
+  const conteoSemanal = {};
+  sessSemana.filter(s => s.fecha < fecha).forEach(s => {
+    conteoSemanal[s.disciplina] = (conteoSemanal[s.disciplina] || 0) + 1;
+  });
+  return Object.keys(plan)
+    .filter(d => (plan[d] || 0) > 0)
+    .sort((a, b) => {
+      const deficitA = (plan[a] || 0) - (conteoSemanal[a] || 0);
+      const deficitB = (plan[b] || 0) - (conteoSemanal[b] || 0);
+      return deficitB - deficitA;
+    });
+}
+
+function _profsDisponiblesDelDia(fecha) {
+  const estado = DiasState.delDia(fecha);
+  const idsExcluidos = estado.profesionalesExcluidos || [];
+  return Profesionales.todos()
+    .filter(p => p.activo !== false && !p.esPracticante && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
+}
+
+// Detecta huecos rellenables: pacientes que ya tienen agenda ese día, con
+// algún slot libre y alguna disciplina de su plan con profesional disponible.
+function detectarHuecosRellenables(fecha) {
+  const estado = DiasState.delDia(fecha);
+  const diaActual = _weekday(fecha);
+  const profsDisponibles = _profsDisponiblesDelDia(fecha);
+  const todosPacientes = Pacientes.activos();
+  const sesionesHoy = Asignaciones.delDia(fecha);
+  const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacientes);
+
+  const pacientesConAgenda = todosPacientes.filter(p => sesionesHoy.some(s => s.pacienteId === p.id));
+  const pacientesOrdenados = [...pacientesConAgenda].sort(
+    (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
+  );
+
+  const huecos = [];
+  pacientesOrdenados.forEach(pac => {
+    if (pac.esAmbulatorio && !(pac.diasAsistencia || []).includes(diaActual)) return;
+    const plan = Planes.delPaciente(pac.id);
+    const discsPlan = Object.keys(plan).filter(d => (plan[d] || 0) > 0);
+    if (discsPlan.length === 0) return;
+
+    SLOTS.forEach(slot => {
+      if (slot.esAlmuerzo) return;
+      if (patientSlots[pac.id]?.[slot.id]) return;
+      const hayCandidato = discsPlan.some(disc =>
+        profsDisponibles.some(p =>
+          (p.disciplinas || []).includes(disc) &&
+          _profEnTurno(estado, p.id, slot.turno, fecha) &&
+          !profSlotsHoy[p.id]?.[slot.id]
+        )
+      );
+      if (hayCandidato) huecos.push({ pacienteId: pac.id, slotId: slot.id });
+    });
+  });
+
+  return huecos;
+}
+
+// Modo automático: recorre los huecos y asigna sola la mejor combinación
+// disciplina/profesional disponible para cada uno (probando cada disciplina
+// del plan por orden de déficit semanal, y quedándose con la de mejor puntaje).
+function rellenarEspaciosVaciosAuto(fecha) {
+  const profsDisponibles = _profsDisponiblesDelDia(fecha);
+  const todosPacientes = Pacientes.activos();
+  const semana = limitesDeSemana(fecha);
+
+  let sesiones = [...Asignaciones.delDia(fecha)];
+  if (!sesiones.length) return { sesionesAgregadas: 0, detalles: [] };
+
+  const pacientesConAgenda = todosPacientes.filter(p => sesiones.some(s => s.pacienteId === p.id));
+  const pacientesOrdenados = [...pacientesConAgenda].sort(
+    (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
+  );
+
+  let sesionesAgregadas = 0;
+  const detalles = [];
+
+  pacientesOrdenados.forEach(pac => {
+    const plan = Planes.delPaciente(pac.id);
+    const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
+    if (discsOrdenadas.length === 0) return;
+
+    SLOTS.forEach(slot => {
+      if (slot.esAlmuerzo) return;
+
+      const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesiones, profsDisponibles, todosPacientes);
+      if (patientSlots[pac.id]?.[slot.id]) return;
+
+      const sessSemana = Asignaciones.delPacienteEnSemana(pac.id, semana.inicio, semana.fin);
+      let mejor = null;
+      discsOrdenadas.forEach(disc => {
+        const necesidad = { tipo: 'relleno_hueco', disciplina: disc, esAlmuerzo: false, slotForzado: slot.id, urgente: false };
+        const resultado = intentarAsignar(necesidad, pac, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, sessSemana);
+        if (resultado.ok && (!mejor || resultado.sesion.puntaje > mejor.sesion.puntaje)) mejor = resultado;
+      });
+
+      if (mejor) {
+        const sesion = { ...mejor.sesion, origen: 'automatico_relleno', fijo: false };
+        sesiones.push(sesion);
+        sesionesAgregadas++;
+        const prof = Profesionales.porId(sesion.profesionalId);
+        detalles.push(
+          `+ ${discLabel(sesion.disciplina)} → ${pac.nombre} ${pac.apellido} ` +
+          `(${slot.label}, ${prof ? Profesionales.nombreCompleto(prof) : '?'})`
+        );
+      }
+    });
+  });
+
+  if (sesionesAgregadas > 0) {
+    Asignaciones.guardarDia(fecha, sesiones);
+    Auditoria.registrar({
+      tipo: 'relleno_huecos',
+      fecha,
+      descripcion: `Relleno automático de huecos: +${sesionesAgregadas} sesión(es)`,
+      detalles
+    });
+  }
+
+  return { sesionesAgregadas, detalles };
+}
+
+// Modo interactivo: para un hueco puntual, devuelve las opciones disponibles
+// (una por disciplina compatible del plan, con el mejor profesional para
+// cada una) para que el operador elija.
+function opcionesParaHueco(fecha, pacienteId, slotId) {
+  const profsDisponibles = _profsDisponiblesDelDia(fecha);
+  const todosPacientes = Pacientes.activos();
+  const sesionesHoy = Asignaciones.delDia(fecha);
+  const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacientes);
+
+  const pac = Pacientes.porId(pacienteId);
+  if (!pac || patientSlots[pacienteId]?.[slotId]) return [];
+
+  const plan = Planes.delPaciente(pacienteId);
+  const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
+  const semana = limitesDeSemana(fecha);
+  const sessSemana = Asignaciones.delPacienteEnSemana(pacienteId, semana.inicio, semana.fin);
+
+  const opciones = [];
+  discsOrdenadas.forEach(disc => {
+    const necesidad = { tipo: 'relleno_hueco', disciplina: disc, esAlmuerzo: false, slotForzado: slotId, urgente: false };
+    const resultado = intentarAsignar(necesidad, pac, sesionesHoy, profSlotsHoy, patientSlots, profsDisponibles, fecha, sessSemana);
+    if (resultado.ok) {
+      opciones.push({
+        disciplina: disc,
+        profesionalId: resultado.sesion.profesionalId,
+        puntaje: resultado.sesion.puntaje,
+        motivo: resultado.sesion.motivo
+      });
+    }
+  });
+
+  return opciones.sort((a, b) => b.puntaje - a.puntaje);
+}
+
 // ─── Métricas ─────────────────────────────────────────────────────────────────
 
 function calcularMetricas(sesiones, pacientes) {

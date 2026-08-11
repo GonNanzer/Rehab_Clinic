@@ -238,6 +238,11 @@ function vistaGrilla() {
           <button class="hdr-dd-item" id="btn-mejorar"
             data-tooltip="Ejecuta un algoritmo de mejora local que reasigna sesiones para subir el índice de calidad sin perder cobertura.">✦ Mejorar agenda</button>
           <div class="hdr-dd-sep"></div>
+          <button class="hdr-dd-item" id="btn-rellenar-auto"
+            data-tooltip="Completa automáticamente los slots vacíos de cada paciente con disciplinas de su plan y profesionales libres. No marca las sesiones como fijas.">🧩 Rellenar huecos (automático)</button>
+          <button class="hdr-dd-item" id="btn-rellenar-interactivo"
+            data-tooltip="Recorre los huecos uno por uno y te deja elegir cómo completar cada uno, con el resumen del día del paciente.">🧩 Rellenar huecos (interactivo)</button>
+          <div class="hdr-dd-sep"></div>
           <button class="hdr-dd-item" id="btn-fijar-todas"
             data-tooltip="Marca todas las sesiones del día como fijas: no serán movidas si regenerás la agenda.">🔒 Fijar todas</button>
           <button class="hdr-dd-item" id="btn-desfijar-todas"
@@ -725,6 +730,41 @@ function bindGrilla() {
           <button class="btn btn-primary" onclick="cerrarModal()">Ver agenda actualizada</button>
         </div>`);
     }
+  });
+
+  document.getElementById('btn-rellenar-auto')?.addEventListener('click', () => {
+    const resultado = rellenarEspaciosVaciosAuto(fechaActiva);
+    renderVista();
+    if (resultado.sesionesAgregadas === 0) {
+      mostrarToast('No se encontraron huecos rellenables (sin slots libres compatibles con el plan de algún paciente).', 'info');
+    } else {
+      abrirModal(`
+        <div class="modal-header">
+          <h3>Huecos rellenados</h3>
+          <button class="modal-close" onclick="cerrarModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="mejora-resultado mejora-con-cambios">
+            <div class="mejora-stats">
+              <div class="mejora-stat">
+                <span class="mejora-num">+${resultado.sesionesAgregadas}</span>
+                <span class="mejora-lbl">sesiones agregadas</span>
+              </div>
+            </div>
+            <p class="text-muted" style="font-size:12px;margin:8px 0">Ninguna quedó marcada como fija — se pueden reasignar o borrar libremente.</p>
+            <ul class="mejora-detalles">
+              ${resultado.detalles.map(d => `<li>${esc(d)}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" onclick="cerrarModal()">Ver agenda actualizada</button>
+        </div>`);
+    }
+  });
+
+  document.getElementById('btn-rellenar-interactivo')?.addEventListener('click', () => {
+    iniciarRellenoInteractivo(fechaActiva);
   });
 
   document.getElementById('btn-fijar-todas')?.addEventListener('click', () => {
@@ -4908,6 +4948,152 @@ function quitarSesionRapidaCreada(sesionId, fecha) {
   if (!sigueExistiendo) {
     _sesionesRapidasCreadas = _sesionesRapidasCreadas.filter(s => s.id !== sesionId);
     renderVista();
+  }
+}
+
+// ─── Relleno interactivo de huecos ─────────────────────────────────────────────
+// Recorre, de a uno, los slots vacíos rellenables del día y deja elegir con
+// qué disciplina/profesional completarlos, mostrando el resumen de la
+// jornada del paciente para decidir con contexto.
+
+let _rellenoQueue = [];
+let _rellenoIdx = -1;
+let _rellenoStats = { creadas: 0, salteadas: 0 };
+let _rellenoOpcionesActuales = [];
+
+function iniciarRellenoInteractivo(fecha) {
+  const huecos = detectarHuecosRellenables(fecha);
+  if (huecos.length === 0) {
+    mostrarToast('No se encontraron huecos rellenables (sin slots libres compatibles con el plan de algún paciente).', 'info');
+    return;
+  }
+  _rellenoQueue = huecos;
+  _rellenoIdx = 0;
+  _rellenoStats = { creadas: 0, salteadas: 0 };
+  _mostrarSiguienteHueco(fecha);
+}
+
+function _mostrarSiguienteHueco(fecha) {
+  // Saltear huecos que dejaron de ser válidos (se ocuparon en el camino, etc.)
+  while (_rellenoIdx < _rellenoQueue.length) {
+    const hueco = _rellenoQueue[_rellenoIdx];
+    const opciones = opcionesParaHueco(fecha, hueco.pacienteId, hueco.slotId);
+    if (opciones.length > 0) {
+      _renderModalHueco(fecha, hueco, opciones);
+      return;
+    }
+    _rellenoIdx++;
+  }
+  cerrarModal();
+  renderVista();
+  mostrarToast(
+    `Relleno interactivo terminado: ${_rellenoStats.creadas} creada${_rellenoStats.creadas === 1 ? '' : 's'}, ` +
+    `${_rellenoStats.salteadas} salteada${_rellenoStats.salteadas === 1 ? '' : 's'}.`,
+    'success'
+  );
+}
+
+function _renderModalHueco(fecha, hueco, opciones) {
+  _rellenoOpcionesActuales = opciones;
+
+  const pac  = Pacientes.porId(hueco.pacienteId);
+  const slot = SLOTS.find(s => s.id === hueco.slotId);
+
+  const sesionesHoy = Asignaciones.delDia(fecha)
+    .filter(s => s.pacienteId === hueco.pacienteId)
+    .sort((a, b) => SLOTS.findIndex(s2 => s2.id === a.slotId) - SLOTS.findIndex(s2 => s2.id === b.slotId));
+
+  const resumenHtml = sesionesHoy.length
+    ? sesionesHoy.map(s => {
+        const slotS = SLOTS.find(sl => sl.id === s.slotId);
+        const prof  = Profesionales.porId(s.profesionalId);
+        return `<div class="relleno-resumen-item">
+          <span class="relleno-resumen-hora">${esc(slotS?.inicio || '')}</span>
+          <span>${esc(discLabel(s.disciplina))} — ${esc(prof?.apellido || '?')}</span>
+        </div>`;
+      }).join('')
+    : `<div class="text-muted" style="font-size:12px">Sin sesiones asignadas todavía hoy.</div>`;
+
+  const opcionesHtml = opciones.map((o, i) => {
+    const prof = Profesionales.porId(o.profesionalId);
+    return `<label class="relleno-opcion">
+      <input type="radio" name="relleno-opcion" value="${i}" ${i === 0 ? 'checked' : ''}>
+      ${discChip(o.disciplina, true)}
+      <span class="relleno-opcion-prof">${esc(prof ? Profesionales.nombreCompleto(prof) : '?')}</span>
+    </label>`;
+  }).join('');
+
+  const restantes = _rellenoQueue.length - _rellenoIdx - 1;
+
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Rellenar hueco — ${esc(pac?.apellido)}, ${esc(pac?.nombre)}</h3>
+      <button class="modal-close" onclick="_cerrarRellenoInteractivo()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="relleno-slot-info"><strong>${esc(slot?.label || '')}</strong> — hueco vacío</div>
+      <div class="relleno-resumen">
+        <div class="text-muted" style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Jornada de hoy</div>
+        ${resumenHtml}
+      </div>
+      <div class="relleno-opciones">
+        <div class="text-muted" style="font-size:11px;text-transform:uppercase;font-weight:700;margin:14px 0 6px">Elegí cómo completarlo</div>
+        ${opcionesHtml}
+      </div>
+      <div class="text-muted" style="font-size:11px;margin-top:10px">${restantes} hueco${restantes === 1 ? '' : 's'} más después de este.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="_saltarHuecoRelleno('${fecha}')">Saltar</button>
+      <button class="btn btn-primary" onclick="_confirmarHuecoRelleno('${fecha}')">✓ Asignar</button>
+    </div>
+  `);
+}
+
+function _crearSesionRelleno(fecha, pacienteId, profesionalId, disciplina, slotId) {
+  const slot = SLOTS.find(s => s.id === slotId);
+  const sesion = {
+    id: genId(), fecha, pacienteId, profesionalId, disciplina, slotId,
+    inicio: slot?.inicio || '', fin: slot?.fin || '', esAlmuerzo: slot?.esAlmuerzo || false,
+    origen: 'manual_relleno', puntaje: null, motivo: 'Relleno de hueco (interactivo)',
+    urgente: false, fijo: false, profesionalesAdicionales: [],
+    creadoEn: new Date().toISOString(), modificadoEn: new Date().toISOString()
+  };
+  const sesiones = Asignaciones.delDia(fecha);
+  sesiones.push(sesion);
+  Asignaciones.guardarDia(fecha, sesiones);
+  Auditoria.registrar({
+    tipo: 'creacion_manual',
+    fecha,
+    sesionId: sesion.id,
+    descripcion: `Relleno interactivo: ${pacienteId} — ${disciplina} — ${slotId}`
+  });
+  return sesion;
+}
+
+function _confirmarHuecoRelleno(fecha) {
+  const seleccion = document.querySelector('input[name="relleno-opcion"]:checked');
+  const idx = seleccion ? Number(seleccion.value) : 0;
+  const opcion = _rellenoOpcionesActuales[idx];
+  const hueco = _rellenoQueue[_rellenoIdx];
+  if (opcion && hueco) {
+    _crearSesionRelleno(fecha, hueco.pacienteId, opcion.profesionalId, opcion.disciplina, hueco.slotId);
+    _rellenoStats.creadas++;
+  }
+  _rellenoIdx++;
+  _mostrarSiguienteHueco(fecha);
+}
+
+function _saltarHuecoRelleno(fecha) {
+  _rellenoStats.salteadas++;
+  _rellenoIdx++;
+  _mostrarSiguienteHueco(fecha);
+}
+
+function _cerrarRellenoInteractivo() {
+  cerrarModal();
+  renderVista();
+  if (_rellenoStats.creadas > 0) {
+    mostrarToast(`Relleno interrumpido: ${_rellenoStats.creadas} sesión(es) creada(s) antes de cerrar.`, 'info');
   }
 }
 
