@@ -4920,29 +4920,36 @@ function bindSesionRapida() {
   $('sr-crear')?.addEventListener('click', crearSesionRapida);
 }
 
-function crearSesionRapida() {
+async function crearSesionRapida() {
   if (!_srFecha || !_srPacienteId || !_srSlotId || !_srDisciplina || !_srProfesionalId) {
     mostrarToast('Completá todos los campos antes de crear la sesión.', 'warning');
     return;
   }
 
+  // Refrescar contra el servidor antes de validar y guardar: dos personas
+  // cargando desde el celular casi al mismo tiempo podrían ver el mismo
+  // horario libre en su cache local. Esto reduce esa ventana a prácticamente
+  // cero (en vez de confiar en datos que podrían tener unos segundos).
+  const btn = document.getElementById('sr-crear');
+  if (btn) { btn.disabled = true; btn.textContent = 'Verificando…'; }
+  if (typeof cargarDatosRemotos === 'function') {
+    try { await cargarDatosRemotos(); }
+    catch (err) { console.error('No se pudo refrescar contra el servidor, sigo con el cache local:', err); }
+  }
+
   const sesionesDia = Asignaciones.delDia(_srFecha);
   if (sesionesDia.some(s => s.pacienteId === _srPacienteId && s.slotId === _srSlotId)) {
     mostrarToast('El paciente ya tiene una sesión en ese horario.', 'danger');
-    return;
-  }
-  if (sesionesDia.some(s => s.profesionalId === _srProfesionalId && s.slotId === _srSlotId)) {
+  } else if (sesionesDia.some(s => s.profesionalId === _srProfesionalId && s.slotId === _srSlotId)) {
     mostrarToast('El profesional ya tiene una sesión en ese horario.', 'danger');
-    return;
+  } else {
+    const sesion = Asignaciones.crearSesionManual(_srFecha, _srPacienteId, _srProfesionalId, _srDisciplina, _srSlotId);
+    _sesionesRapidasCreadas.unshift(sesion);
+    // Se mantiene la fecha para poder cargar varias sesiones seguidas del mismo día
+    _srPacienteId = ''; _srSlotId = ''; _srDisciplina = ''; _srProfesionalId = '';
+    mostrarToast('Sesión fija creada', 'success');
   }
 
-  const sesion = Asignaciones.crearSesionManual(_srFecha, _srPacienteId, _srProfesionalId, _srDisciplina, _srSlotId);
-  _sesionesRapidasCreadas.unshift(sesion);
-
-  // Se mantiene la fecha para poder cargar varias sesiones seguidas del mismo día
-  _srPacienteId = ''; _srSlotId = ''; _srDisciplina = ''; _srProfesionalId = '';
-
-  mostrarToast('Sesión fija creada', 'success');
   renderVista();
 }
 
