@@ -296,6 +296,20 @@ function calcularPuntaje(prof, slot, slotIdx, paciente, disciplina, esAlmuerzo, 
       total -= 40;
       motivos.push(`Ya tiene ${disciplina} en el turno ${slot.turno} — mejor el otro turno`);
     }
+
+    // Variar profesional entre sesiones de la misma disciplina el mismo día
+    // (ej.: kinesiología a la mañana y a la tarde con distinto kinesiólogo).
+    // No aplica si este profesional es el referente del paciente en esa
+    // disciplina: ahí sí conviene que sea siempre el mismo.
+    if (!esReferente) {
+      const mismoProfMismaDisc = sesionesActuales.some(s =>
+        s.pacienteId === paciente.id && s.disciplina === disciplina && s.profesionalId === prof.id
+      );
+      if (mismoProfMismaDisc) {
+        total -= 50;
+        motivos.push(`${Profesionales.iniciales(prof)} ya atendió ${disciplina} hoy — variar profesional`);
+      }
+    }
   }
 
   // La repetición de disciplina en slots consecutivos ahora es una restricción
