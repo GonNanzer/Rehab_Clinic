@@ -95,6 +95,14 @@ let sesionesCola = [];              // [{ pacienteId, profesionalId, disciplina,
 let modoColocarDeCola = null;       // { idx } — índice en sesionesCola que se está colocando
 let _dragSesionId    = null;        // sesionId en vuelo durante drag-and-drop
 let sidebarCollapsed = false;       // panel derecho de profesionales colapsado
+
+// ── Estado del formulario "Nueva sesión fija" (solo mobile) ──
+let _srFecha        = new Date().toISOString().split('T')[0];
+let _srPacienteId   = '';
+let _srSlotId        = '';
+let _srDisciplina    = '';
+let _srProfesionalId = '';
+let _sesionesRapidasCreadas = []; // feedback de lo creado en esta visita a la vista
 let dispRowCollapsed = false;       // fila de disponibles colapsada
 let dispPinned      = true;         // panel de disponibles fijado (sticky)
 let _updateSidebarPosition  = null;  // función de reposicionamiento sticky del sidebar
@@ -133,6 +141,11 @@ function navegarA(vista) {
   // Al entrar de nuevo a Horarios de Baño (desde otra vista) recargamos la
   // grilla desde los datos actuales, por si se editó algo mientras tanto.
   if (vista === 'banos' && vistaActiva !== 'banos') _banoGridState = null;
+  // Al entrar a "Nueva sesión fija" desde otra vista, arrancar el form limpio
+  if (vista === 'sesionRapida' && vistaActiva !== 'sesionRapida') {
+    _srPacienteId = ''; _srSlotId = ''; _srDisciplina = ''; _srProfesionalId = '';
+    _sesionesRapidasCreadas = [];
+  }
   vistaActiva = vista;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === vista));
   renderVista();
@@ -155,6 +168,7 @@ function renderVista() {
     case 'metricas':      contenedor.innerHTML = vistaMetricas();      bindMetricas();      break;
     case 'historial':     contenedor.innerHTML = vistaHistorial();     bindHistorial();     break;
     case 'auditoria':     contenedor.innerHTML = vistaAuditoria();                          break;
+    case 'sesionRapida':  contenedor.innerHTML = vistaSesionRapida();     bindSesionRapida(); break;
     default: contenedor.innerHTML = '<p>Vista no encontrada</p>';
   }
 }
@@ -4749,6 +4763,150 @@ function vistaAuditoria() {
 function limpiarAuditoria() {
   if (confirm('¿Eliminar todo el historial de auditoría?')) {
     escribirStorage(STORAGE_KEYS.auditoria, []);
+    renderVista();
+  }
+}
+
+// ─── Vista: Nueva sesión fija (solo mobile) ───────────────────────────────────
+// Generador simple de sesiones fijas para el futuro: día, paciente, horario,
+// disciplina y profesional, sin pasar por la grilla. Pensada para cargar
+// desde el celular sin scroll horizontal. El botón de acceso solo aparece
+// en mobile (ver index.html / media query en styles.css).
+
+function vistaSesionRapida() {
+  const pacientes = Pacientes.activos().sort((a,b) => (a.apellido||'').localeCompare(b.apellido||''));
+  const discsOrdenadas = Object.entries(DISCIPLINAS).sort((a,b) => a[1].label.localeCompare(b[1].label));
+  const profsCompatibles = _srDisciplina ? Profesionales.porDisciplina(_srDisciplina) : [];
+
+  const pacOpts = pacientes.map(p =>
+    `<option value="${p.id}" ${_srPacienteId === p.id ? 'selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`
+  ).join('');
+
+  const slotOpts = SLOTS.map(s =>
+    `<option value="${s.id}" ${_srSlotId === s.id ? 'selected' : ''}>${esc(s.label)}${s.esAlmuerzo ? ' (almuerzo)' : ''}</option>`
+  ).join('');
+
+  const discOpts = discsOrdenadas.map(([key, d]) =>
+    `<option value="${key}" ${_srDisciplina === key ? 'selected' : ''}>${esc(d.label)}</option>`
+  ).join('');
+
+  const profOpts = profsCompatibles
+    .sort((a,b) => (a.apellido||'').localeCompare(b.apellido||''))
+    .map(p => `<option value="${p.id}" ${_srProfesionalId === p.id ? 'selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`)
+    .join('');
+
+  const creadasHtml = _sesionesRapidasCreadas.length ? `
+    <div class="sesion-rapida-creadas">
+      <div class="text-muted" style="font-size:11px;text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin:20px 0 8px">
+        Creadas ahora (${_sesionesRapidasCreadas.length})
+      </div>
+      ${_sesionesRapidasCreadas.map(s => {
+        const pac  = Pacientes.porId(s.pacienteId);
+        const prof = Profesionales.porId(s.profesionalId);
+        const slot = SLOTS.find(sl => sl.id === s.slotId);
+        const disc = DISCIPLINAS[s.disciplina];
+        return `<div class="sesion-rapida-item">
+          <div class="sesion-rapida-info">
+            <strong>${esc(pac?.apellido||'?')}, ${esc(pac?.nombre||'')}</strong>
+            <span class="text-muted" style="font-size:12px;display:block">
+              ${formatFecha(s.fecha)} · ${esc(slot?.label||s.slotId)} · ${esc(disc?.corto||s.disciplina)} · ${esc(prof?.apellido||'?')}
+            </span>
+          </div>
+          <button class="btn btn-sm btn-danger" onclick="quitarSesionRapidaCreada('${s.id}','${s.fecha}')" title="Eliminar">🗑</button>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  return `<div class="vista-header">
+    <div class="vista-header-left"><h2>Nueva sesión fija</h2></div>
+  </div>
+  <p class="text-muted" style="font-size:12px;margin-bottom:16px">
+    Cargá una sesión fija para el futuro sin pasar por la grilla: elegí día, paciente, horario, disciplina y profesional.
+  </p>
+  <div class="sesion-rapida-form">
+    <div class="form-group">
+      <label>Fecha</label>
+      <input type="date" id="sr-fecha" class="input-field" value="${_srFecha}">
+    </div>
+    <div class="form-group">
+      <label>Paciente</label>
+      <select id="sr-paciente" class="select-field">
+        <option value="">— Elegir —</option>
+        ${pacOpts}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Horario</label>
+      <select id="sr-horario" class="select-field">
+        <option value="">— Elegir —</option>
+        ${slotOpts}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Disciplina</label>
+      <select id="sr-disciplina" class="select-field">
+        <option value="">— Elegir —</option>
+        ${discOpts}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Profesional</label>
+      <select id="sr-profesional" class="select-field" ${_srDisciplina ? '' : 'disabled'}>
+        <option value="">${_srDisciplina ? '— Elegir —' : 'Elegí una disciplina primero'}</option>
+        ${profOpts}
+      </select>
+      ${_srDisciplina && profsCompatibles.length === 0 ? `<span class="text-muted" style="font-size:11px;color:#dc2626">No hay profesionales activos con esta disciplina.</span>` : ''}
+    </div>
+    <button class="btn btn-primary" id="sr-crear" style="width:100%;justify-content:center">+ Crear sesión fija</button>
+  </div>
+  ${creadasHtml}`;
+}
+
+function bindSesionRapida() {
+  const $ = id => document.getElementById(id);
+  $('sr-fecha')?.addEventListener('change', e => { _srFecha = e.target.value; });
+  $('sr-paciente')?.addEventListener('change', e => { _srPacienteId = e.target.value; });
+  $('sr-horario')?.addEventListener('change', e => { _srSlotId = e.target.value; });
+  $('sr-disciplina')?.addEventListener('change', e => {
+    _srDisciplina = e.target.value;
+    _srProfesionalId = '';
+    renderVista(); // refresca el select de profesionales según la disciplina elegida
+  });
+  $('sr-profesional')?.addEventListener('change', e => { _srProfesionalId = e.target.value; });
+  $('sr-crear')?.addEventListener('click', crearSesionRapida);
+}
+
+function crearSesionRapida() {
+  if (!_srFecha || !_srPacienteId || !_srSlotId || !_srDisciplina || !_srProfesionalId) {
+    mostrarToast('Completá todos los campos antes de crear la sesión.', 'warning');
+    return;
+  }
+
+  const sesionesDia = Asignaciones.delDia(_srFecha);
+  if (sesionesDia.some(s => s.pacienteId === _srPacienteId && s.slotId === _srSlotId)) {
+    mostrarToast('El paciente ya tiene una sesión en ese horario.', 'danger');
+    return;
+  }
+  if (sesionesDia.some(s => s.profesionalId === _srProfesionalId && s.slotId === _srSlotId)) {
+    mostrarToast('El profesional ya tiene una sesión en ese horario.', 'danger');
+    return;
+  }
+
+  const sesion = Asignaciones.crearSesionManual(_srFecha, _srPacienteId, _srProfesionalId, _srDisciplina, _srSlotId);
+  _sesionesRapidasCreadas.unshift(sesion);
+
+  // Se mantiene la fecha para poder cargar varias sesiones seguidas del mismo día
+  _srPacienteId = ''; _srSlotId = ''; _srDisciplina = ''; _srProfesionalId = '';
+
+  mostrarToast('Sesión fija creada', 'success');
+  renderVista();
+}
+
+function quitarSesionRapidaCreada(sesionId, fecha) {
+  eliminarSesion(sesionId, fecha); // pide confirmación y ya re-renderiza
+  const sigueExistiendo = Asignaciones.delDia(fecha).some(s => s.id === sesionId);
+  if (!sigueExistiendo) {
+    _sesionesRapidasCreadas = _sesionesRapidasCreadas.filter(s => s.id !== sesionId);
     renderVista();
   }
 }

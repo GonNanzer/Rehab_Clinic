@@ -109,6 +109,10 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   color: #94a3b8;
 }
 .nav-sub .nav-icon { font-size: 12px; }
+
+/* Solo existe en mobile (ver @media más abajo) — herramienta pensada
+   específicamente para cargar sesiones fijas desde el celular. */
+.nav-mobile-only { display: none; }
 .nav-sub:hover { background: var(--sidebar-hover); color: #e2e8f0; }
 .nav-sub.active { background: rgba(59,130,246,0.25); color: #93c5fd; font-weight: 600; }
 
@@ -2345,6 +2349,32 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .bano-dd-item:hover { background: #eff6ff; }
 .bano-dd-vacio { padding: 6px 8px; font-size: 12px; color: var(--text-muted); }
 
+/* ── Nueva sesión fija (mobile) ────────────────────────────────────────────── */
+.sesion-rapida-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+.sesion-rapida-form .form-group { margin-bottom: 4px; }
+.sesion-rapida-form select:disabled { background: var(--bg-alt); color: var(--text-muted); cursor: not-allowed; }
+#sr-crear { margin-top: 10px; }
+
+.sesion-rapida-creadas { max-width: 420px; }
+.sesion-rapida-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  background: var(--surface);
+}
+.sesion-rapida-info { min-width: 0; }
+.sesion-rapida-info strong { font-size: 13px; }
+
 /* ── Responsive básico ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 56px; min-width: 56px; }
@@ -2352,6 +2382,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   .sidebar-header, .sidebar-subtitle, .nav-btn span:not(.nav-icon), .sidebar-footer { display: none; }
   .nav-btn { justify-content: center; padding: 10px; }
   .sidebar-toggle-btn { display: flex; align-items: center; justify-content: center; }
+  .nav-mobile-only { display: flex; }
+  .sidebar.mobile-open .nav-mobile-only span:not(.nav-icon) { display: block; }
 
   /* Sidebar como drawer: se abre por tap (clase .mobile-open desde app.js),
      no por :hover, que no existe en touch. */
@@ -2399,6 +2431,22 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   .asist-hora-cell { width: 38px; min-width: 38px; }
   .asist-hora-lbl { width: 38px; height: 34px; line-height: 34px; }
   .asist-grid { -webkit-overflow-scrolling: touch; }
+
+  /* Encabezados de vista: que el date-input/select no empujen el título afuera */
+  .vista-header-left { flex-wrap: wrap; row-gap: 6px; }
+
+  /* Referentes por disciplina (form paciente): label arriba, select abajo */
+  .ref-row { flex-direction: column; align-items: stretch; gap: 3px; }
+  .ref-row label { min-width: 0; }
+
+  /* Editor de prioridad (higiene / almuerzo / grupos de preferencia):
+     que los botones no se corten si el nombre de la disciplina es largo */
+  .gpref-item { flex-wrap: wrap; row-gap: 4px; }
+
+  /* Lista por profesional: la hora ocupaba demasiado ancho para el nombre */
+  .lista-prof-hora { width: 62px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .lista-prof-item { flex-wrap: wrap; }
+  .lista-prof-pac { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 }
 
 /* ── Sistema de tooltips ──────────────────────────────────────────────────────
