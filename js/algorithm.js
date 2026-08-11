@@ -32,6 +32,12 @@ function _slotAdyacente(slotId, delta) {
   return `slot_${String(Number(m[1]) + delta).padStart(2, '0')}`;
 }
 
+// Ventana de ingreso/egreso de un paciente ambulatorio para un día de la
+// semana (1=Lun…6=Sáb, 0=Dom) — puede variar según el día.
+function _horarioAmbulatorioDia(p, dia) {
+  return (p.horarioAmbulatorioPorDia || {})[dia] || null;
+}
+
 // Aplica los bloqueos de baño semanal de un paciente para el día dado
 // (el slot del baño en sí, y opcionalmente la hora anterior/siguiente).
 function _aplicarBloqueosBano(patientSlots, pacienteId, bañosSemana, diaActual) {
@@ -674,10 +680,12 @@ function generarAgenda(fecha, opciones = {}) {
 
   // Bloquear slots fuera de la ventana de asistencia ambulatoria
   todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio || !p.slotIngreso || !p.slotEgreso) return;
+    if (!p.esAmbulatorio) return;
     if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const iIng = SLOTS.findIndex(s => s.id === p.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === p.slotEgreso);
+    const horario = _horarioAmbulatorioDia(p, diaActual);
+    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
+    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
+    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
     if (iIng < 0 || iEgr < 0) return;
     SLOTS.forEach((s, i) => {
       if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
@@ -915,10 +923,12 @@ function generarAgendaSlotPorSlot(fecha) {
   });
   // Bloquear slots fuera de la ventana de asistencia ambulatoria
   todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio || !p.slotIngreso || !p.slotEgreso) return;
+    if (!p.esAmbulatorio) return;
     if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const iIng = SLOTS.findIndex(s => s.id === p.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === p.slotEgreso);
+    const horario = _horarioAmbulatorioDia(p, diaActual);
+    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
+    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
+    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
     if (iIng < 0 || iEgr < 0) return;
     SLOTS.forEach((s, i) => {
       if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
@@ -1222,10 +1232,12 @@ function mejoraLocal(fecha) {
     // Bloquear slots fuera de la ventana de asistencia ambulatoria
     const _diaActual = _weekday(fecha);
     todosPacientes.forEach(p => {
-      if (!p.esAmbulatorio || !p.slotIngreso || !p.slotEgreso) return;
+      if (!p.esAmbulatorio) return;
       if (!(p.diasAsistencia || []).includes(_diaActual)) return;
-      const iIng = SLOTS.findIndex(s => s.id === p.slotIngreso);
-      const iEgr = SLOTS.findIndex(s => s.id === p.slotEgreso);
+      const horario = _horarioAmbulatorioDia(p, _diaActual);
+      if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
+      const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
+      const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
       if (iIng < 0 || iEgr < 0) return;
       SLOTS.forEach((s, i) => {
         if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
@@ -1481,10 +1493,12 @@ function _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacie
     }
   }
   todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio || !p.slotIngreso || !p.slotEgreso) return;
+    if (!p.esAmbulatorio) return;
     if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const iIng = SLOTS.findIndex(s => s.id === p.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === p.slotEgreso);
+    const horario = _horarioAmbulatorioDia(p, diaActual);
+    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
+    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
+    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
     if (iIng < 0 || iEgr < 0) return;
     SLOTS.forEach((s, i) => {
       if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id]) patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';

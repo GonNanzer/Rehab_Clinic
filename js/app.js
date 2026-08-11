@@ -3070,12 +3070,26 @@ function abrirFormPaciente(pac) {
     '<option value="' + s.id + '">' + esc(s.label) + '</option>'
   ).join('');
   const slotsNoAlmuerzo = SLOTS.filter(s => !s.esAlmuerzo);
-  const slotIngOpts = slotsNoAlmuerzo.map(s =>
-    '<option value="' + s.id + '"' + (pac?.slotIngreso === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>'
-  ).join('');
-  const slotEgrOpts = slotsNoAlmuerzo.map(s =>
-    '<option value="' + s.id + '"' + (pac?.slotEgreso === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>'
-  ).join('');
+  const horarioAmbPorDia = pac?.horarioAmbulatorioPorDia || {};
+  const _slotSelectAmb = (name, valorActual) => `<select name="${name}" class="select-field select-field-sm">
+    <option value="">— Sin definir —</option>
+    ${slotsNoAlmuerzo.map(s => `<option value="${s.id}" ${valorActual === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}
+  </select>`;
+  const amDiasHorarioHtml = [1,2,3,4,5,6].map(d => {
+    const activo = (pac?.diasAsistencia || []).includes(d);
+    const horario = horarioAmbPorDia[d] || {};
+    return `<div class="amb-dia-row-horario">
+      <label class="check-label-sm amb-dia-check">
+        <input type="checkbox" name="amb_dia" value="${d}" data-dia="${d}" ${activo ? 'checked' : ''}>
+        ${DIAS_SEMANA[d]}
+      </label>
+      <div class="amb-dia-horario-selects" id="amb-horario-dia-${d}" style="display:${activo ? 'flex' : 'none'}">
+        ${_slotSelectAmb(`amb_ingreso_${d}`, horario.slotIngreso)}
+        <span class="text-muted" style="font-size:11px">a</span>
+        ${_slotSelectAmb(`amb_egreso_${d}`, horario.slotEgreso)}
+      </div>
+    </div>`;
+  }).join('');
 
   const html = `
   <div class="modal-header">
@@ -3143,31 +3157,10 @@ function abrirFormPaciente(pac) {
 
     <fieldset class="fieldset" id="fieldset-ambulatorio" style="display:${pac?.esAmbulatorio ? '' : 'none'}">
       <legend>Horario ambulatorio</legend>
-      <div class="text-muted" style="margin-bottom:8px;font-size:12px">Días de asistencia y ventana horaria — se bloquean los slots fuera del rango</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
-        ${[1,2,3,4,5,6].map(d =>
-          '<label class="check-label-sm">' +
-            '<input type="checkbox" name="amb_dia" value="' + d + '"' + ((pac?.diasAsistencia||[]).includes(d) ? ' checked' : '') + '> ' +
-            DIAS_SEMANA[d] +
-          '</label>'
-        ).join('')}
+      <div class="text-muted" style="margin-bottom:8px;font-size:12px">
+        Marcá los días que asiste y el horario de ingreso/egreso de cada uno — puede variar según el día. Se bloquean los slots fuera del rango.
       </div>
-      <div class="form-row-2">
-        <div class="form-group">
-          <label>Ingresa</label>
-          <select id="pac-slot-ingreso" class="select-field">
-            <option value="">— Sin definir —</option>
-            ${slotIngOpts}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Egresa</label>
-          <select id="pac-slot-egreso" class="select-field">
-            <option value="">— Sin definir —</option>
-            ${slotEgrOpts}
-          </select>
-        </div>
-      </div>
+      <div class="amb-dias-horarios">${amDiasHorarioHtml}</div>
     </fieldset>
 
     <fieldset class="fieldset">
@@ -3248,6 +3241,12 @@ function abrirFormPaciente(pac) {
   });
   document.getElementById('pac-es-ambulatorio').addEventListener('change', e => {
     document.getElementById('fieldset-ambulatorio').style.display = e.target.checked ? '' : 'none';
+  });
+  document.querySelectorAll('input[name="amb_dia"]').forEach(chk => {
+    chk.addEventListener('change', e => {
+      const el = document.getElementById(`amb-horario-dia-${e.target.dataset.dia}`);
+      if (el) el.style.display = e.target.checked ? 'flex' : 'none';
+    });
   });
 }
 
@@ -3378,8 +3377,14 @@ function guardarPaciente(id) {
   const diasAsistencia = esAmbulatorio
     ? [...document.querySelectorAll('input[name="amb_dia"]:checked')].map(e => Number(e.value))
     : [];
-  const slotIngreso = esAmbulatorio ? (document.getElementById('pac-slot-ingreso')?.value || null) : null;
-  const slotEgreso  = esAmbulatorio ? (document.getElementById('pac-slot-egreso')?.value  || null) : null;
+  const horarioAmbulatorioPorDia = {};
+  if (esAmbulatorio) {
+    diasAsistencia.forEach(dia => {
+      const ing = document.querySelector(`select[name="amb_ingreso_${dia}"]`)?.value || null;
+      const egr = document.querySelector(`select[name="amb_egreso_${dia}"]`)?.value || null;
+      if (ing || egr) horarioAmbulatorioPorDia[dia] = { slotIngreso: ing, slotEgreso: egr };
+    });
+  }
 
   const datos = {
     nombre,
@@ -3389,8 +3394,7 @@ function guardarPaciente(id) {
     grupo,
     esAmbulatorio,
     diasAsistencia,
-    slotIngreso,
-    slotEgreso,
+    horarioAmbulatorioPorDia,
     transferencias: document.getElementById('pac-transferencias').value || null,
     almuerza,
     disciplinasAlmuerzo,
@@ -5134,6 +5138,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   migrarDatos();
   // Migración: disciplinaHigiene / disciplinasAlmuerzo → listas por prioridad
   migrarHigieneAlmuerzo();
+  // Migración: slotIngreso/slotEgreso → horarioAmbulatorioPorDia
+  migrarHorarioAmbulatorio();
 
   // Fecha en sidebar
   document.getElementById('sidebar-fecha').textContent =

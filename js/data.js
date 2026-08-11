@@ -191,8 +191,7 @@ const Pacientes = {
       grupo: null,                      // 'tec' | 'acv' | 'medular'
       esAmbulatorio: false,             // paciente ambulatorio (no internado)
       diasAsistencia: [],               // [1,3,5] — días que asiste (solo ambulatorio)
-      slotIngreso: null,                // slot de llegada diaria (solo ambulatorio)
-      slotEgreso: null,                 // slot de salida diaria (solo ambulatorio)
+      horarioAmbulatorioPorDia: {},     // { dia: { slotIngreso, slotEgreso } } — puede variar según el día
       transferencias: null,             // clave de TRANSFERENCIAS
       disciplinasRequeridas: [],
       limitesDiarios: {},               // { disciplina: maxSesionesPorDia }
@@ -587,6 +586,29 @@ function migrarHigieneAlmuerzo() {
   const actualizados = pacs.map(p => {
     const { disciplinaHigiene, ...resto } = p;
     return { ...resto, disciplinasHigiene: [], disciplinasAlmuerzo: [] };
+  });
+  escribirStorage(STORAGE_KEYS.pacientes, actualizados);
+}
+
+// Convierte slotIngreso/slotEgreso (un horario único para todos los días)
+// a horarioAmbulatorioPorDia (un horario por cada día de asistencia), para
+// poder configurar horarios distintos según el día. A los pacientes que ya
+// tenían un horario cargado se les copia ese mismo horario a cada uno de
+// sus días de asistencia.
+function migrarHorarioAmbulatorio() {
+  const pacs = Pacientes.todos();
+  const necesita = pacs.some(p => 'slotIngreso' in p || 'slotEgreso' in p || !p.horarioAmbulatorioPorDia);
+  if (!necesita) return;
+  const actualizados = pacs.map(p => {
+    const { slotIngreso, slotEgreso, ...resto } = p;
+    if (!p.esAmbulatorio || !slotIngreso || !slotEgreso) {
+      return { ...resto, horarioAmbulatorioPorDia: resto.horarioAmbulatorioPorDia || {} };
+    }
+    const porDia = { ...(resto.horarioAmbulatorioPorDia || {}) };
+    (p.diasAsistencia || []).forEach(dia => {
+      if (!porDia[dia]) porDia[dia] = { slotIngreso, slotEgreso };
+    });
+    return { ...resto, horarioAmbulatorioPorDia: porDia };
   });
   escribirStorage(STORAGE_KEYS.pacientes, actualizados);
 }
