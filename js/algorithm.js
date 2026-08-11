@@ -351,7 +351,8 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
       const _diaNumAlm = _weekday(fecha);
       const _estadoAlm = DiasState.delDia(fecha);
       const discElegidaAlm = _discPrioritariaDisponible(
-        paciente.disciplinasAlmuerzo, profsDisponibles, _estadoAlm, slot, fecha
+        paciente.disciplinasAlmuerzo?.length ? paciente.disciplinasAlmuerzo : DISCIPLINAS_ALMUERZO_DEFAULT,
+        profsDisponibles, _estadoAlm, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
         if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha)) return false;
@@ -1020,7 +1021,8 @@ function generarAgendaSlotPorSlot(fecha) {
         if (!remainingNeeds[pac.id]?.['_almuerzo']) continue;
         if (patientSlots[pac.id][slot.id]) continue;
         const discElegidaAlm = _discPrioritariaDisponible(
-          pac.disciplinasAlmuerzo, profsDisponibles, estado, slot, fecha
+          pac.disciplinasAlmuerzo?.length ? pac.disciplinasAlmuerzo : DISCIPLINAS_ALMUERZO_DEFAULT,
+          profsDisponibles, estado, slot, fecha
         );
         let bestProf = null, bestScore = -Infinity;
         for (const prof of profsDisponibles) {

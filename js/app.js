@@ -1014,9 +1014,8 @@ function abrirModalSesion(sesionId, fecha) {
     if (!idsPresentes.has(p.id)) return false;
     if (ocupadosEnSlot.has(p.id)) return false;
     if (sesion.esAlmuerzo) {
-      return paciente.disciplinasAlmuerzo?.length
-        ? paciente.disciplinasAlmuerzo.some(d => (p.disciplinas||[]).includes(d))
-        : true; // "-elegir-": cualquier disciplina sirve para el almuerzo
+      const discsAlm = paciente.disciplinasAlmuerzo?.length ? paciente.disciplinasAlmuerzo : DISCIPLINAS_ALMUERZO_DEFAULT;
+      return discsAlm.some(d => (p.disciplinas||[]).includes(d));
     }
     if (sesion.disciplina === '_higiene') {
       return paciente?.disciplinasHigiene?.length

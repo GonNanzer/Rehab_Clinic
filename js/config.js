@@ -87,8 +87,13 @@ const DISCIPLINAS = {
   }
 };
 
-// Disciplinas que pueden cubrir almuerzo terapéutico por defecto
-const DISCIPLINAS_ALMUERZO_DEFAULT = ['fonoaudiologia', 'terapiaOcupacional'];
+// Disciplinas que pueden cubrir almuerzo terapéutico cuando el paciente tiene
+// "-elegir-" (sin disciplinas específicas configuradas). NO es "cualquier
+// disciplina": limita a las que tiene sentido que acompañen un almuerzo.
+const DISCIPLINAS_ALMUERZO_DEFAULT = [
+  'fonoaudiologia', 'kinesiologiaRespiratoria', 'kinesiologia',
+  'psicologia', 'neuropsicologia', 'terapiaOcupacional'
+];
 
 const SLOTS = [
   { id: 'slot_08', inicio: '08:00', fin: '09:00', label: '08:00 – 09:00', turno: 'manana', esAlmuerzo: false },
