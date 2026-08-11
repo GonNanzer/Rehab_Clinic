@@ -108,7 +108,7 @@ function _pdf_buildDoc(sesiones, fecha, titulo, opciones) {
       if (bloqueados.has(slot.id)) {
         return '<td style="color:#dc2626;font-size:10px;text-align:center">✕</td>';
       }
-      if (slot.esAlmuerzo && (pac.almuerza !== undefined ? pac.almuerza : true) && !pac.requiereAlmuerzoTerapeutico) {
+      if (slot.esAlmuerzo && (pac.almuerza ?? (pac.requiereAlmuerzoTerapeutico || false)) && !pac.requiereAlmuerzoTerapeutico) {
         return '<td style="color:#94a3b8;background:#f8fafc;font-size:8px">—</td>';
       }
       return '<td></td>';

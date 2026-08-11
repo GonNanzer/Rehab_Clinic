@@ -444,7 +444,7 @@ function vistaGrilla() {
             <div class="celda-prof">${iconOrigen}${esc(Profesionales.iniciales(prof))} ${esc(prof?.apellido || '')}</div>
             ${esRef ? '<div class="ref-badge">★ Ref.</div>' : ''}
           </td>`;
-        } else if (slot.esAlmuerzo && (pac.almuerza ?? true) && !pac.requiereAlmuerzoTerapeutico) {
+        } else if (slot.esAlmuerzo && (pac.almuerza ?? (pac.requiereAlmuerzoTerapeutico || false)) && !pac.requiereAlmuerzoTerapeutico) {
           html += `<td class="celda-almuerzo-libre" title="Almuerzo (sin terapista)">🍽</td>`;
         } else {
           const colaItem = modoColocarDeCola !== null ? sesionesCola[modoColocarDeCola.idx] : null;
