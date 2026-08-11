@@ -199,9 +199,9 @@ const Pacientes = {
       bloqueaKTR: false,                // impide atención KTR simultánea con otro paciente
       bloqueosPermanentes: [],          // [{ slotId, motivo }] — el algoritmo los lee directo
       requiereHigiene: false,           // necesita rutina de higiene matutina (reserva slot 09:00)
-      disciplinaHigiene: null,          // disciplina responsable de la higiene
+      disciplinasHigiene: [],           // disciplinas responsables, en orden de prioridad ([] = "-elegir-": cualquiera)
       requiereAlmuerzoTerapeutico: false,
-      disciplinasAlmuerzo: [...DISCIPLINAS_ALMUERZO_DEFAULT],
+      disciplinasAlmuerzo: [],          // disciplinas responsables, en orden de prioridad ([] = "-elegir-": cualquiera)
       referentes: {},
       ...datos
     };
@@ -570,6 +570,23 @@ function migrarDatos() {
   const actualizados = pacs.map(p => {
     if (p.grupo !== 'ambulatorio') return p;
     return { ...p, esAmbulatorio: true, grupo: null };
+  });
+  escribirStorage(STORAGE_KEYS.pacientes, actualizados);
+}
+
+// Convierte disciplinaHigiene (un solo valor) y disciplinasAlmuerzo (checkboxes
+// sin orden) al mismo formato: lista de disciplinas por prioridad, donde []
+// significa "-elegir-" (cualquiera). Los pacientes que ya requerían la
+// rutina la siguen requiriendo, ahora con la disciplina en "-elegir-".
+function migrarHigieneAlmuerzo() {
+  const pacs = Pacientes.todos();
+  const necesita = pacs.some(p =>
+    'disciplinaHigiene' in p || !Array.isArray(p.disciplinasHigiene) || !Array.isArray(p.disciplinasAlmuerzo)
+  );
+  if (!necesita) return;
+  const actualizados = pacs.map(p => {
+    const { disciplinaHigiene, ...resto } = p;
+    return { ...resto, disciplinasHigiene: [], disciplinasAlmuerzo: [] };
   });
   escribirStorage(STORAGE_KEYS.pacientes, actualizados);
 }

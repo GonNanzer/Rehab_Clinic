@@ -52,6 +52,28 @@ function _aplicarBloqueosBano(patientSlots, pacienteId, bañosSemana, diaActual)
   });
 }
 
+// Rutinas con disciplina "por prioridad" (higiene, almuerzo): dada una lista
+// ordenada de disciplinas preferidas, devuelve la primera que tenga al menos
+// un profesional disponible para ese turno/horario. Si la lista está vacía
+// ("-elegir-"), devuelve null = sin restricción (cualquier disciplina sirve).
+// Si ninguna de las preferidas tiene profesional disponible, devuelve igual
+// la primera (para que el intento de asignación falle más abajo con un
+// mensaje claro, en vez de saltarse la prioridad silenciosamente).
+function _discPrioritariaDisponible(discsPrioridad, profsDisponibles, estadoDia, slot, fecha) {
+  if (!discsPrioridad || discsPrioridad.length === 0) return null;
+  const diaNum = _weekday(fecha);
+  for (const disc of discsPrioridad) {
+    const hayDisponible = profsDisponibles.some(p => {
+      if (!_profEnTurno(estadoDia, p.id, slot.turno, fecha)) return false;
+      if (!(p.disciplinas || []).includes(disc)) return false;
+      const horarios = (p.horariosPorDia || {})[diaNum];
+      return !(horarios && horarios.length > 0 && !horarios.includes(slot.id));
+    });
+    if (hayDisponible) return disc;
+  }
+  return discsPrioridad[0];
+}
+
 // ─── Construcción de necesidades ─────────────────────────────────────────────
 
 /*
@@ -62,9 +84,11 @@ function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgen
   const necesidades = [];
 
   // 0. Rutina de higiene matutina: reserva slot 09:00
-  if (paciente.requiereHigiene && paciente.disciplinaHigiene) {
+  // disciplina va con sentinel '_higiene' (igual que el almuerzo con '_almuerzo');
+  // la disciplina real la decide intentarAsignar según discsPrioridad ([] = cualquiera).
+  if (paciente.requiereHigiene) {
     necesidades.push({
-      tipo: 'higiene', disciplina: paciente.disciplinaHigiene,
+      tipo: 'higiene', disciplina: '_higiene', discsPrioridad: paciente.disciplinasHigiene || [],
       esAlmuerzo: false, slotForzado: 'slot_09',
       urgente: false, prioridad: 11
     });
@@ -283,7 +307,8 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
                           patientSlots, profsDisponibles, fecha, sesionesEstaSemana,
                           ctx = {}) {
   // ctx.coordSesEstaSemana: { profId: count } — cuota semanal de coordinadores
-  const { disciplina, esAlmuerzo, slotForzado, urgente } = necesidad;
+  const { disciplina, esAlmuerzo, slotForzado, urgente, discsPrioridad } = necesidad;
+  const esHigiene = necesidad.tipo === 'higiene';
 
   // Verificar límite diario por disciplina (las prescripciones urgentes lo omiten)
   if (!esAlmuerzo && !urgente) {
@@ -323,16 +348,30 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
     // Filtrar profesionales válidos para este slot
     let profsValidos;
     if (esAlmuerzo) {
-      const discsAlmuerzo = paciente.disciplinasAlmuerzo?.length
-        ? paciente.disciplinasAlmuerzo
-        : DISCIPLINAS_ALMUERZO_DEFAULT;
       const _diaNumAlm = _weekday(fecha);
       const _estadoAlm = DiasState.delDia(fecha);
+      const discElegidaAlm = _discPrioritariaDisponible(
+        paciente.disciplinasAlmuerzo, profsDisponibles, _estadoAlm, slot, fecha
+      );
       profsValidos = profsDisponibles.filter(p => {
         if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha)) return false;
-        if (!discsAlmuerzo.some(d => (p.disciplinas || []).includes(d))) return false;
+        if (discElegidaAlm && !(p.disciplinas || []).includes(discElegidaAlm)) return false;
         const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
         if (horariosAlm && horariosAlm.length > 0 && !horariosAlm.includes(slot.id)) return false;
+        const slotStatus = profSlotsHoy[p.id]?.[slot.id];
+        return !slotStatus;
+      });
+    } else if (esHigiene) {
+      const _diaNumHig = _weekday(fecha);
+      const _estadoHig = DiasState.delDia(fecha);
+      const discElegidaHig = _discPrioritariaDisponible(
+        discsPrioridad, profsDisponibles, _estadoHig, slot, fecha
+      );
+      profsValidos = profsDisponibles.filter(p => {
+        if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha)) return false;
+        if (discElegidaHig && !(p.disciplinas || []).includes(discElegidaHig)) return false;
+        const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
+        if (horariosHig && horariosHig.length > 0 && !horariosHig.includes(slot.id)) return false;
         const slotStatus = profSlotsHoy[p.id]?.[slot.id];
         return !slotStatus;
       });
@@ -980,11 +1019,12 @@ function generarAgendaSlotPorSlot(fecha) {
       for (const pac of pacientesActivos) {
         if (!remainingNeeds[pac.id]?.['_almuerzo']) continue;
         if (patientSlots[pac.id][slot.id]) continue;
-        const discsAlm = pac.disciplinasAlmuerzo?.length
-          ? pac.disciplinasAlmuerzo : ['fonoaudiologia', 'terapiaOcupacional'];
+        const discElegidaAlm = _discPrioritariaDisponible(
+          pac.disciplinasAlmuerzo, profsDisponibles, estado, slot, fecha
+        );
         let bestProf = null, bestScore = -Infinity;
         for (const prof of profsDisponibles) {
-          if (!discsAlm.some(d => (prof.disciplinas || []).includes(d))) continue;
+          if (discElegidaAlm && !(prof.disciplinas || []).includes(discElegidaAlm)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
           if (!_profEnTurno(estado, prof.id, slot.turno, fecha)) continue;
@@ -1008,18 +1048,20 @@ function generarAgendaSlotPorSlot(fecha) {
     // Higiene matutina forzada a slot_09
     if (slot.id === 'slot_09') {
       for (const pac of pacientesActivos) {
-        if (!pac.requiereHigiene || !pac.disciplinaHigiene) continue;
+        if (!pac.requiereHigiene) continue;
         if (patientSlots[pac.id][slot.id]) continue;
-        if (!(remainingNeeds[pac.id]?.[pac.disciplinaHigiene] > 0)) continue;
-        const disc = pac.disciplinaHigiene;
+        if (!(remainingNeeds[pac.id]?.['_higiene'] > 0)) continue;
+        const discElegidaHig = _discPrioritariaDisponible(
+          pac.disciplinasHigiene, profsDisponibles, estado, slot, fecha
+        );
         let bestProf = null, bestScore = -Infinity;
         for (const prof of profsDisponibles) {
-          if (!(prof.disciplinas || []).includes(disc)) continue;
+          if (discElegidaHig && !(prof.disciplinas || []).includes(discElegidaHig)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
           if (!_profEnTurno(estado, prof.id, slot.turno, fecha)) continue;
           const { total } = calcularPuntaje(
-            prof, slot, 0, pac, disc, false, false,
+            prof, slot, 0, pac, '_higiene', false, false,
             sesiones, profSlotsHoy, sesSemanaMap[pac.id] || []
           );
           if (total > bestScore) { bestScore = total; bestProf = prof; }
@@ -1027,7 +1069,7 @@ function generarAgendaSlotPorSlot(fecha) {
         if (!bestProf) continue;
         _registrar({
           id: genId(), fecha, pacienteId: pac.id, profesionalId: bestProf.id,
-          disciplina: disc, slotId: slot.id, inicio: slot.inicio, fin: slot.fin,
+          disciplina: '_higiene', slotId: slot.id, inicio: slot.inicio, fin: slot.fin,
           esAlmuerzo: false, origen: 'automatico_horario', puntaje: bestScore,
           urgente: false, creadoEn: new Date().toISOString()
         });

@@ -10,13 +10,18 @@ function esc(str) {
 
 function discChip(disc, corto = false) {
   const d = DISCIPLINAS[disc];
-  if (!d) return `<span class="chip chip-almuerzo">${esc(disc === '_almuerzo' ? '🍽 Almuerzo' : disc)}</span>`;
+  if (!d) {
+    if (disc === '_almuerzo') return `<span class="chip chip-almuerzo">🍽 Almuerzo</span>`;
+    if (disc === '_higiene')  return `<span class="chip chip-almuerzo">🧼 Higiene</span>`;
+    return `<span class="chip chip-almuerzo">${esc(disc)}</span>`;
+  }
   const lbl = corto ? d.corto : d.label;
   return `<span class="chip" style="background:${d.bg};color:${d.color};border-color:${d.border}">${esc(lbl)}</span>`;
 }
 
 function discLabel(disc) {
   if (disc === '_almuerzo') return '🍽 Almuerzo terapéutico';
+  if (disc === '_higiene')  return '🧼 Higiene matutina';
   return DISCIPLINAS[disc]?.label || disc;
 }
 
@@ -1008,11 +1013,17 @@ function abrirModalSesion(sesionId, fecha) {
   const profsCompatibles = Profesionales.activos().filter(p => {
     if (!idsPresentes.has(p.id)) return false;
     if (ocupadosEnSlot.has(p.id)) return false;
-    return sesion.esAlmuerzo
-      ? (paciente.disciplinasAlmuerzo?.length
-          ? paciente.disciplinasAlmuerzo.some(d => (p.disciplinas||[]).includes(d))
-          : DISCIPLINAS_ALMUERZO_DEFAULT.some(d => (p.disciplinas||[]).includes(d)))
-      : (p.disciplinas||[]).includes(sesion.disciplina);
+    if (sesion.esAlmuerzo) {
+      return paciente.disciplinasAlmuerzo?.length
+        ? paciente.disciplinasAlmuerzo.some(d => (p.disciplinas||[]).includes(d))
+        : true; // "-elegir-": cualquier disciplina sirve para el almuerzo
+    }
+    if (sesion.disciplina === '_higiene') {
+      return paciente?.disciplinasHigiene?.length
+        ? paciente.disciplinasHigiene.some(d => (p.disciplinas||[]).includes(d))
+        : true; // "-elegir-": cualquier disciplina sirve para la higiene
+    }
+    return (p.disciplinas||[]).includes(sesion.disciplina);
   });
   // El profesional actual siempre disponible (ya está asignado aquí)
   if (prof && !profsCompatibles.find(p => p.id === prof.id)) profsCompatibles.unshift(prof);
@@ -2307,8 +2318,8 @@ function _pacienteCard(p) {
       ${transf ? `<div class="label-row" style="margin-bottom:6px">Transferencias: <strong>${transf.label}</strong></div>` : ''}
       <div class="label-row">Disciplinas:</div>
       <div>${(_discsDelPlan(p.id)).map(d => discChip(d, true)).join(' ') || '<em class="text-muted">Sin plan cargado</em>'}</div>
-      ${p.requiereAlmuerzoTerapeutico ? `<div class="mt-4">${discChip('_almuerzo', true)}</div>` : ''}
-      ${p.requiereHigiene ? `<div class="mt-4" style="font-size:11px;color:#0891b2">🧼 Higiene: ${discLabel(p.disciplinaHigiene)}</div>` : ''}
+      ${p.requiereAlmuerzoTerapeutico ? `<div class="mt-4">${discChip('_almuerzo', true)} <span class="text-muted" style="font-size:11px">${(p.disciplinasAlmuerzo||[]).length ? p.disciplinasAlmuerzo.map(d => DISCIPLINAS[d]?.corto||d).join(' → ') : '— Elegir —'}</span></div>` : ''}
+      ${p.requiereHigiene ? `<div class="mt-4">${discChip('_higiene', true)} <span class="text-muted" style="font-size:11px">${(p.disciplinasHigiene||[]).length ? p.disciplinasHigiene.map(d => DISCIPLINAS[d]?.corto||d).join(' → ') : '— Elegir —'}</span></div>` : ''}
     </div>
     <div class="card-footer">
       <button class="btn btn-sm btn-secondary" onclick="editarPaciente('${p.id}')">✏ Editar</button>
@@ -2968,19 +2979,15 @@ function abrirFormPaciente(pac) {
   const todos = Object.keys(DISCIPLINAS);
   const profs = Profesionales.activos();
   _bloqPermForm = (pac?.bloqueosPermanentes || []).map(b => ({ ...b }));
+  _pacDiscsForm = {
+    higiene:  Array.isArray(pac?.disciplinasHigiene)  ? [...pac.disciplinasHigiene]  : [],
+    almuerzo: Array.isArray(pac?.disciplinasAlmuerzo) ? [...pac.disciplinasAlmuerzo] : []
+  };
 
   const discsDelPlan = pac ? _discsDelPlan(pac.id) : [];
   const discsPlanHtml = discsDelPlan.length > 0
     ? discsDelPlan.map(d => discChip(d, true)).join(' ')
     : '<em class="text-muted">Sin plan cargado — configurá el plan terapéutico para ver las disciplinas</em>';
-
-  const discAlmuerzoCheckboxes = todos.map(disc => {
-    const checked = (pac?.disciplinasAlmuerzo || DISCIPLINAS_ALMUERZO_DEFAULT).includes(disc) ? 'checked' : '';
-    return `<label class="check-label">
-      <input type="checkbox" name="disc_almuerzo" value="${disc}" ${checked}>
-      ${discChip(disc, true)}
-    </label>`;
-  }).join('');
 
   const refSelects = todos.map(disc => {
     const refId = pac?.referentes?.[disc] || '';
@@ -3125,13 +3132,8 @@ function abrirFormPaciente(pac) {
         Requiere rutina de higiene con terapista (reserva el slot 09:00)
       </label>
       <div id="higiene-disc" style="display:${pac?.requiereHigiene ? '' : 'none'}">
-        <label style="font-size:13px">Disciplina responsable:</label>
-        <select id="pac-disc-higiene" class="select-field" style="margin-top:4px">
-          <option value="">— Elegir —</option>
-          ${Object.keys(DISCIPLINAS).map(disc =>
-            `<option value="${disc}" ${pac?.disciplinaHigiene === disc ? 'selected' : ''}>${esc(DISCIPLINAS[disc]?.label)}</option>`
-          ).join('')}
-        </select>
+        <label style="font-size:13px">Disciplina/s responsable/s:</label>
+        <div id="discs-prioridad-higiene" class="grupos-pref-editor" style="margin-top:4px">${_renderDiscsPrioridadEditor('higiene')}</div>
       </div>
     </fieldset>
 
@@ -3147,8 +3149,8 @@ function abrirFormPaciente(pac) {
           Requiere acompañamiento terapéutico
         </label>
         <div id="almuerzo-discs" style="display:${pac?.requiereAlmuerzoTerapeutico ? '' : 'none'}">
-          <div class="text-muted" style="margin-bottom:4px">Disciplinas que pueden cubrir el almuerzo:</div>
-          <div class="check-grid">${discAlmuerzoCheckboxes}</div>
+          <label style="font-size:13px">Disciplina/s responsable/s:</label>
+          <div id="discs-prioridad-almuerzo" class="grupos-pref-editor" style="margin-top:4px">${_renderDiscsPrioridadEditor('almuerzo')}</div>
         </div>
       </div>
     </fieldset>
@@ -3194,6 +3196,72 @@ function abrirFormPaciente(pac) {
   document.getElementById('pac-es-ambulatorio').addEventListener('change', e => {
     document.getElementById('fieldset-ambulatorio').style.display = e.target.checked ? '' : 'none';
   });
+}
+
+// Estado temporal de disciplinas por prioridad (higiene / almuerzo) en el
+// formulario de paciente. []  = "-elegir-" (cualquier disciplina).
+let _pacDiscsForm = { higiene: [], almuerzo: [] };
+
+function _renderDiscsPrioridadEditor(campo) {
+  const seleccion = _pacDiscsForm[campo];
+  let html = '';
+
+  if (seleccion.length === 0) {
+    html += `<div class="text-muted" style="font-size:12px;margin-bottom:6px">— Elegir — <span style="font-style:italic">(cualquier disciplina)</span></div>`;
+  } else {
+    html += `<div class="gpref-lista">`;
+    seleccion.forEach((key, i) => {
+      const d = DISCIPLINAS[key];
+      if (!d) return;
+      html += `<div class="gpref-item">
+        <span class="gpref-rank">P${i+1}</span>
+        <span class="badge" style="background:${d.bg};color:${d.color};border:1px solid ${d.border}">${esc(d.label)}</span>
+        <div class="gpref-btns">
+          ${i > 0 ? `<button type="button" class="gpref-btn" onclick="moverDiscPrioridad('${campo}', ${i}, -1)" title="Subir prioridad">↑</button>` : '<span class="gpref-btn-ph"></span>'}
+          ${i < seleccion.length - 1 ? `<button type="button" class="gpref-btn" onclick="moverDiscPrioridad('${campo}', ${i}, 1)" title="Bajar prioridad">↓</button>` : '<span class="gpref-btn-ph"></span>'}
+          <button type="button" class="gpref-btn gpref-btn-del" onclick="quitarDiscPrioridad('${campo}', '${key}')" title="Quitar">✕</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  const disponibles = Object.entries(DISCIPLINAS).filter(([key]) => !seleccion.includes(key));
+  if (disponibles.length > 0) {
+    html += `<div class="gpref-agregar">`;
+    disponibles.forEach(([key, d]) => {
+      html += `<button type="button" class="gpref-add-btn" onclick="agregarDiscPrioridad('${campo}', '${key}')"
+        style="background:${d.bg};color:${d.color};border:1px solid ${d.border}">
+        + ${esc(d.corto)}
+      </button>`;
+    });
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function _refreshDiscsPrioridadEditor(campo) {
+  const el = document.getElementById(`discs-prioridad-${campo}`);
+  if (el) el.innerHTML = _renderDiscsPrioridadEditor(campo);
+}
+
+function agregarDiscPrioridad(campo, key) {
+  if (!_pacDiscsForm[campo].includes(key)) _pacDiscsForm[campo].push(key);
+  _refreshDiscsPrioridadEditor(campo);
+}
+
+function quitarDiscPrioridad(campo, key) {
+  _pacDiscsForm[campo] = _pacDiscsForm[campo].filter(k => k !== key);
+  _refreshDiscsPrioridadEditor(campo);
+}
+
+function moverDiscPrioridad(campo, idx, dir) {
+  const arr = _pacDiscsForm[campo];
+  const nuevo = idx + dir;
+  if (nuevo < 0 || nuevo >= arr.length) return;
+  [arr[idx], arr[nuevo]] = [arr[nuevo], arr[idx]];
+  _refreshDiscsPrioridadEditor(campo);
 }
 
 // Estado temporal de bloqueos permanentes en el formulario
@@ -3243,7 +3311,7 @@ function guardarPaciente(id) {
   if (!nombre || !apellido) { alert('Nombre y apellido son obligatorios.'); return; }
 
   const almuerza = document.getElementById('pac-almuerza').checked;
-  const disciplinasAlmuerzo = [...document.querySelectorAll('input[name="disc_almuerzo"]:checked')].map(e => e.value);
+  const disciplinasAlmuerzo = [..._pacDiscsForm.almuerzo];
   const requiereAlmuerzoTerapeutico = document.getElementById('pac-almuerzo').checked;
 
   const referentes = {};
@@ -3278,7 +3346,7 @@ function guardarPaciente(id) {
     bloqueaKTR: document.getElementById('pac-bloquea-ktr').checked,
     bloqueosPermanentes: [..._bloqPermForm],
     requiereHigiene: document.getElementById('pac-higiene').checked,
-    disciplinaHigiene: document.getElementById('pac-disc-higiene')?.value || null
+    disciplinasHigiene: [..._pacDiscsForm.higiene]
   };
 
   if (id) Pacientes.actualizar(id, datos);
@@ -4488,7 +4556,7 @@ function vistaHistorialPaciente(pacienteId) {
 
   fechas.forEach(fecha => {
     const ss = todasAsignaciones[fecha].filter(s => s.pacienteId === pacienteId);
-    const horas = ss.filter(s => s.disciplina !== '_almuerzo').length;
+    const horas = ss.filter(s => s.disciplina !== '_almuerzo' && s.disciplina !== '_higiene').length;
     html += `<tr>
       <td><span class="hist-fecha">${formatFecha(fecha)}</span> <span class="hist-dia">${diaSemana(fecha)}</span></td>
       <td>
@@ -4508,7 +4576,7 @@ function vistaHistorialPaciente(pacienteId) {
       const bg = d ? d.bg : '#f0f0f0';
       const col = d ? d.color : '#333';
       const brd = d ? d.border : '#ccc';
-      const lbl = s.disciplina === '_almuerzo' ? '🍽' : (d ? d.corto : s.disciplina);
+      const lbl = s.disciplina === '_almuerzo' ? '🍽' : (s.disciplina === '_higiene' ? '🧼' : (d ? d.corto : s.disciplina));
       html += `<span class="hist-chip" style="background:${bg};color:${col};border-color:${brd}" title="${discLabel(s.disciplina)} · ${prof ? Profesionales.nombreCompleto(prof) : 'Sin asignar'}">${esc(lbl)} ${esc(ini)}${esRef ? ' ★' : ''}${esManual ? ' ✏' : ''}</span>`;
     });
 
@@ -4520,7 +4588,7 @@ function vistaHistorialPaciente(pacienteId) {
   // Distribución por disciplina
   const conteo = {};
   todasSesiones.forEach(s => {
-    if (s.disciplina !== '_almuerzo') conteo[s.disciplina] = (conteo[s.disciplina] || 0) + 1;
+    if (s.disciplina !== '_almuerzo' && s.disciplina !== '_higiene') conteo[s.disciplina] = (conteo[s.disciplina] || 0) + 1;
   });
   const max = Math.max(...Object.values(conteo), 1);
 
@@ -4586,7 +4654,7 @@ function vistaHistorialProfesional(profesionalId) {
       const bg = d ? d.bg : '#f0f0f0';
       const col = d ? d.color : '#333';
       const brd = d ? d.border : '#ccc';
-      const lbl = s.disciplina === '_almuerzo' ? '🍽' : (d ? d.corto : s.disciplina);
+      const lbl = s.disciplina === '_almuerzo' ? '🍽' : (s.disciplina === '_higiene' ? '🧼' : (d ? d.corto : s.disciplina));
       const nomPac = pac ? `${pac.nombre} ${pac.apellido}` : 'Sin paciente';
       const slot = SLOTS.find(sl => sl.id === s.slotId);
       html += `<span class="hist-chip" style="background:${bg};color:${col};border-color:${brd}" title="${esc(nomPac)} · ${discLabel(s.disciplina)} · ${slot ? slot.label : s.slotId}">${esc(lbl)} ${pac ? esc(pac.apellido.slice(0, 8)) : '?'}</span>`;
@@ -4721,6 +4789,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Migración: grupo 'ambulatorio' → esAmbulatorio: true
   migrarDatos();
+  // Migración: disciplinaHigiene / disciplinasAlmuerzo → listas por prioridad
+  migrarHigieneAlmuerzo();
 
   // Fecha en sidebar
   document.getElementById('sidebar-fecha').textContent =
