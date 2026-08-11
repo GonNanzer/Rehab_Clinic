@@ -657,7 +657,7 @@ function generarAgenda(fecha, opciones = {}) {
 
   // Bloquear slot_12 para pacientes que almuerzan sin terapista
   todosPacientes.forEach(p => {
-    if (p.almuerza === true && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
+    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
       patientSlots[p.id]['slot_12'] = 'ALMUERZO';
   });
 
@@ -898,7 +898,7 @@ function generarAgendaSlotPorSlot(fecha) {
 
   // Bloquear slot_12 para pacientes que almuerzan sin terapista
   todosPacientes.forEach(p => {
-    if (p.almuerza === true && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
+    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
       patientSlots[p.id]['slot_12'] = 'ALMUERZO';
   });
 
@@ -1204,7 +1204,7 @@ function mejoraLocal(fecha) {
 
     // Bloquear slot_12 para pacientes que almuerzan sin terapista
     todosPacientes.forEach(p => {
-      if (p.almuerza === true && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
+      if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
         patientSlots[p.id]['slot_12'] = 'ALMUERZO';
     });
 
