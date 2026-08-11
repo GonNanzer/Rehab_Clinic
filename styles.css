@@ -2285,6 +2285,66 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .bano-tabla tbody tr:hover .bano-td-slot:has(input:checked) { background: #7dd3fc; }
 .bano-tabla tbody tr:hover .bano-slot-fuera { background: #d0d7e0; }
 
+/* ── Carga rápida de baños (grilla hora × día) ──────────────────────────────── */
+.bano-grilla-scroll {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  background: #fff;
+}
+.bano-grilla-tabla { border-collapse: collapse; width: 100%; min-width: 1100px; }
+.bano-grilla-tabla th, .bano-grilla-tabla td { border: 1px solid var(--border); }
+.bano-grilla-tabla thead th {
+  background: #ede9fe; color: #5b21b6;
+  font-size: 12px; font-weight: 700;
+  padding: 8px 6px; text-align: center; white-space: nowrap;
+}
+.bano-grilla-th-hora { width: 56px; min-width: 56px; }
+.bano-grilla-hora {
+  background: var(--bg-alt); font-weight: 700; font-size: 12px;
+  text-align: center; padding: 6px; width: 56px; min-width: 56px;
+  position: sticky; left: 0;
+}
+.bano-grilla-celda { padding: 4px; min-width: 150px; vertical-align: top; }
+
+.bano-chip {
+  display: flex; align-items: center; gap: 3px;
+  background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px;
+  padding: 2px 4px; margin-bottom: 3px; font-size: 11px;
+}
+.bano-chip-nombre {
+  flex: 1; font-weight: 700; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.bano-chip-flag {
+  border: 1px solid #cbd5e1; background: #fff; border-radius: 4px;
+  width: 17px; height: 17px; font-size: 9px; line-height: 1; cursor: pointer;
+  color: #94a3b8; display: flex; align-items: center; justify-content: center;
+  padding: 0; flex-shrink: 0;
+}
+.bano-chip-flag.activo { background: #f59e0b; border-color: #d97706; color: #fff; }
+.bano-chip-x {
+  border: none; background: none; color: #94a3b8; cursor: pointer;
+  font-size: 12px; padding: 0 2px; flex-shrink: 0;
+}
+.bano-chip-x:hover { color: #dc2626; }
+
+.bano-cell-add { position: relative; }
+.bano-cell-search {
+  width: 100%; border: 1px dashed var(--border); border-radius: 5px;
+  padding: 3px 5px; font-size: 11px; color: var(--text-muted);
+}
+.bano-cell-search:focus { outline: none; border-color: var(--primary, #2563eb); color: var(--text); }
+.bano-cell-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+  background: #fff; border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: var(--shadow-md); max-height: 180px; overflow-y: auto; margin-top: 2px;
+}
+.bano-cell-dropdown.open { display: block; }
+.bano-dd-item { padding: 6px 8px; font-size: 12px; cursor: pointer; }
+.bano-dd-item:hover { background: #eff6ff; }
+.bano-dd-vacio { padding: 6px 8px; font-size: 12px; color: var(--text-muted); }
+
 /* ── Responsive básico ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 56px; min-width: 56px; }

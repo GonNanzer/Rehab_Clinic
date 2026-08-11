@@ -23,6 +23,35 @@ function diasLaborablesRestantes(fecha) {
   return 6 - dow; // lunes=1→5, martes=2→4, miércoles=3→3, jueves=4→2, viernes=5→1
 }
 
+// slot_08 + delta(±1) → slot_09 / slot_07. Se usa para los bloqueos de
+// "hora anterior/siguiente" del baño; si cae fuera del horario terapéutico
+// simplemente no matchea ningún SLOTS y no bloquea nada.
+function _slotAdyacente(slotId, delta) {
+  const m = /^slot_(\d{2})$/.exec(slotId || '');
+  if (!m) return null;
+  return `slot_${String(Number(m[1]) + delta).padStart(2, '0')}`;
+}
+
+// Aplica los bloqueos de baño semanal de un paciente para el día dado
+// (el slot del baño en sí, y opcionalmente la hora anterior/siguiente).
+function _aplicarBloqueosBano(patientSlots, pacienteId, bañosSemana, diaActual) {
+  (bañosSemana || []).forEach(b => {
+    if (b.dia !== diaActual) return;
+    if (SLOTS.some(s => s.id === b.slotId) && !patientSlots[pacienteId][b.slotId])
+      patientSlots[pacienteId][b.slotId] = 'BAÑO';
+    if (b.bloqAnterior) {
+      const idAnt = _slotAdyacente(b.slotId, -1);
+      if (idAnt && SLOTS.some(s => s.id === idAnt) && !patientSlots[pacienteId][idAnt])
+        patientSlots[pacienteId][idAnt] = 'BAÑO';
+    }
+    if (b.bloqSiguiente) {
+      const idSig = _slotAdyacente(b.slotId, 1);
+      if (idSig && SLOTS.some(s => s.id === idSig) && !patientSlots[pacienteId][idSig])
+        patientSlots[pacienteId][idSig] = 'BAÑO';
+    }
+  });
+}
+
 // ─── Construcción de necesidades ─────────────────────────────────────────────
 
 /*
@@ -592,12 +621,9 @@ function generarAgenda(fecha, opciones = {}) {
       patientSlots[p.id]['slot_12'] = 'ALMUERZO';
   });
 
-  // Bloquear slots de baño semanal
+  // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
-    (p.bañosSemana || []).forEach(b => {
-      if (b.dia === diaActual && SLOTS.some(s => s.id === b.slotId) && !patientSlots[p.id][b.slotId])
-        patientSlots[p.id][b.slotId] = 'BAÑO';
-    });
+    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
   });
 
   for (const paciente of pacientesOrdenados) {
@@ -836,12 +862,9 @@ function generarAgendaSlotPorSlot(fecha) {
       patientSlots[p.id]['slot_12'] = 'ALMUERZO';
   });
 
-  // Bloquear slots de baño semanal
+  // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
-    (p.bañosSemana || []).forEach(b => {
-      if (b.dia === diaActual && SLOTS.some(s => s.id === b.slotId) && !patientSlots[p.id][b.slotId])
-        patientSlots[p.id][b.slotId] = 'BAÑO';
-    });
+    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
   });
 
   sesionesFijas.forEach(s => {
@@ -1141,12 +1164,9 @@ function mejoraLocal(fecha) {
         patientSlots[p.id]['slot_12'] = 'ALMUERZO';
     });
 
-    // Bloquear slots de baño semanal
+    // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
     todosPacientes.forEach(p => {
-      (p.bañosSemana || []).forEach(b => {
-        if (b.dia === _diaActual && SLOTS.some(s => s.id === b.slotId) && !patientSlots[p.id][b.slotId])
-          patientSlots[p.id][b.slotId] = 'BAÑO';
-      });
+      _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, _diaActual);
     });
 
     ss.forEach(s => {

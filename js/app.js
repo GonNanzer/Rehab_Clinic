@@ -124,6 +124,9 @@ function _idsProfsPresentes(estado, fecha) {
 function navegarA(vista) {
   if (modoRotacion) cancelarModoRotacion();
   if (modoSwap) cancelarModoSwap();
+  // Al entrar de nuevo a la grilla de baños (desde otra vista) recargamos
+  // desde los datos actuales, por si se editó algo desde la vista clásica.
+  if (vista === 'banosGrilla' && vistaActiva !== 'banosGrilla') _banoGridState = null;
   vistaActiva = vista;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === vista));
   renderVista();
@@ -138,6 +141,7 @@ function renderVista() {
     case 'pacientes':     contenedor.innerHTML = vistaPacientes();     bindPacientes();     break;
     case 'lista-prof':    contenedor.innerHTML = vistaListaProf();  bindListaProf();       break;
     case 'banos':         contenedor.innerHTML = vistaBanos();                              break;
+    case 'banosGrilla':   contenedor.innerHTML = vistaBanosGrilla();     bindBanosGrilla();  break;
     case 'egresados':     contenedor.innerHTML = vistaEgresados();     bindEgresados();     break;
     case 'profesionales': contenedor.innerHTML = vistaProfesionales(); bindProfesionales(); break;
     case 'practicantes':  contenedor.innerHTML = vistaPracticantes();  bindPracticantes();  break;
@@ -2665,6 +2669,180 @@ function limpiarBanoPac(pacId) {
 
 function toggleBanoPac(pacId) {
   document.getElementById(`bano-pac-${pacId}`).classList.toggle('colapsado');
+}
+
+// ─── Vista: Carga rápida de baños (grilla hora × día) ─────────────────────────
+// Mismo dato que la vista de arriba (Pacientes.bañosSemana), pero con el
+// formato de carga inverso: en vez de elegir un paciente y tildar sus
+// horarios, se recorre la grilla (como el cronograma en papel) y se elige
+// el/los paciente/s de cada casillero mediante un buscador con autocompletado.
+
+const _BANO_HORAS_GRILLA = Array.from({ length: 13 }, (_, i) => {
+  const h = i + 7;
+  return { h, id: `slot_${String(h).padStart(2, '0')}`, label: `${String(h).padStart(2, '0')}:00` };
+});
+
+// Estado en memoria mientras se edita la grilla (no se persiste hasta "Guardar").
+// Forma: { [dia]: { [slotId]: [{ pacienteId, bloqAnterior, bloqSiguiente }] } }
+let _banoGridState = null;
+
+function _cargarBanoGridState() {
+  const estado = {};
+  _BANO_DIAS.forEach(d => { estado[d.dia] = {}; });
+  Pacientes.activos().forEach(pac => {
+    (pac.bañosSemana || []).forEach(b => {
+      if (!estado[b.dia]) estado[b.dia] = {};
+      if (!estado[b.dia][b.slotId]) estado[b.dia][b.slotId] = [];
+      estado[b.dia][b.slotId].push({
+        pacienteId: pac.id,
+        bloqAnterior: !!b.bloqAnterior,
+        bloqSiguiente: !!b.bloqSiguiente
+      });
+    });
+  });
+  return estado;
+}
+
+function vistaBanosGrilla() {
+  if (Pacientes.activos().length === 0) {
+    return `<div class="vista-header"><h2>Carga rápida de baños</h2></div>
+      <p class="text-muted" style="padding:24px">No hay pacientes activos.</p>`;
+  }
+  if (!_banoGridState) _banoGridState = _cargarBanoGridState();
+
+  const thDias = _BANO_DIAS.map(d => `<th>${esc(d.label)}</th>`).join('');
+  const filas = _BANO_HORAS_GRILLA.map(h => {
+    const celdas = _BANO_DIAS.map(d =>
+      `<td class="bano-grilla-celda" id="bano-cell-${d.dia}-${h.id}">${_banoRenderCell(d.dia, h.id)}</td>`
+    ).join('');
+    return `<tr><td class="bano-grilla-hora">${h.label}</td>${celdas}</tr>`;
+  }).join('');
+
+  return `<div class="vista-header">
+    <div class="vista-header-left">
+      <h2>Carga rápida de baños</h2>
+      <span class="text-muted" style="font-size:12px">
+        Elegí el/los paciente/s de cada casillero — mismo dato que "Horarios de Baño", se guarda como bloqueo semanal recurrente.
+      </span>
+    </div>
+    <div class="vista-header-right">
+      <button class="btn btn-secondary" onclick="_banoGridState=null;renderVista()">↺ Descartar cambios</button>
+      <button class="btn btn-primary" onclick="guardarBanoGrilla()">Guardar</button>
+    </div>
+  </div>
+  <div class="bano-grilla-scroll">
+    <table class="bano-grilla-tabla">
+      <thead><tr><th class="bano-grilla-th-hora">Hora</th>${thDias}</tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  </div>`;
+}
+
+function bindBanosGrilla() {
+  // Las celdas se repintan individualmente (ver _banoRepintarCelda), así que
+  // no hace falta bindear nada acá: todo usa atributos inline (oninput/onclick).
+}
+
+function _banoRenderCell(dia, slotId) {
+  const items = (_banoGridState[dia] && _banoGridState[dia][slotId]) || [];
+  const chips = items.map(it => {
+    const pac = Pacientes.porId(it.pacienteId);
+    return `<div class="bano-chip">
+      <span class="bano-chip-nombre" title="${esc(pac ? pac.apellido + ', ' + pac.nombre : '')}">${esc(pac?.apellido || '?')}</span>
+      <button type="button" class="bano-chip-flag${it.bloqAnterior ? ' activo' : ''}"
+        title="Bloquear la hora anterior" onclick="_banoToggleFlag(${dia},'${slotId}','${it.pacienteId}','bloqAnterior')">◀</button>
+      <button type="button" class="bano-chip-flag${it.bloqSiguiente ? ' activo' : ''}"
+        title="Bloquear la hora siguiente" onclick="_banoToggleFlag(${dia},'${slotId}','${it.pacienteId}','bloqSiguiente')">▶</button>
+      <button type="button" class="bano-chip-x" title="Quitar" onclick="_banoQuitarChip(${dia},'${slotId}','${it.pacienteId}')">✕</button>
+    </div>`;
+  }).join('');
+
+  return `${chips}
+    <div class="bano-cell-add">
+      <input type="text" class="bano-cell-search" placeholder="+ paciente"
+        oninput="_banoFiltrar(this, ${dia}, '${slotId}')"
+        onfocus="_banoFiltrar(this, ${dia}, '${slotId}')"
+        onblur="setTimeout(()=>_banoCerrarDropdown(${dia},'${slotId}'), 150)">
+      <div class="bano-cell-dropdown" id="bano-dd-${dia}-${slotId}"></div>
+    </div>`;
+}
+
+function _banoRepintarCelda(dia, slotId) {
+  const el = document.getElementById(`bano-cell-${dia}-${slotId}`);
+  if (el) el.innerHTML = _banoRenderCell(dia, slotId);
+}
+
+function _banoFiltrar(input, dia, slotId) {
+  const q  = input.value.trim().toLowerCase();
+  const dd = document.getElementById(`bano-dd-${dia}-${slotId}`);
+  if (!dd) return;
+
+  if (!q) { dd.innerHTML = ''; dd.classList.remove('open'); return; }
+
+  const yaAgregados = new Set((_banoGridState[dia][slotId] || []).map(it => it.pacienteId));
+  const matches = Pacientes.activos()
+    .filter(p => !yaAgregados.has(p.id))
+    .filter(p => `${p.nombre} ${p.apellido}`.toLowerCase().includes(q))
+    .slice(0, 8);
+
+  dd.innerHTML = matches.length
+    ? matches.map(p =>
+        `<div class="bano-dd-item" onmousedown="event.preventDefault();_banoAgregarChip(${dia},'${slotId}','${p.id}')">
+           ${esc(p.apellido)}, ${esc(p.nombre)}
+         </div>`
+      ).join('')
+    : `<div class="bano-dd-vacio">Sin resultados</div>`;
+  dd.classList.add('open');
+}
+
+function _banoCerrarDropdown(dia, slotId) {
+  const dd = document.getElementById(`bano-dd-${dia}-${slotId}`);
+  if (dd) { dd.innerHTML = ''; dd.classList.remove('open'); }
+}
+
+function _banoAgregarChip(dia, slotId, pacId) {
+  if (!_banoGridState[dia][slotId]) _banoGridState[dia][slotId] = [];
+  if (_banoGridState[dia][slotId].some(it => it.pacienteId === pacId)) return;
+  _banoGridState[dia][slotId].push({ pacienteId: pacId, bloqAnterior: false, bloqSiguiente: false });
+  _banoRepintarCelda(dia, slotId);
+}
+
+function _banoQuitarChip(dia, slotId, pacId) {
+  _banoGridState[dia][slotId] = (_banoGridState[dia][slotId] || []).filter(it => it.pacienteId !== pacId);
+  _banoRepintarCelda(dia, slotId);
+}
+
+function _banoToggleFlag(dia, slotId, pacId, campo) {
+  const item = (_banoGridState[dia][slotId] || []).find(it => it.pacienteId === pacId);
+  if (item) item[campo] = !item[campo];
+  _banoRepintarCelda(dia, slotId);
+}
+
+function guardarBanoGrilla() {
+  if (!_banoGridState) return;
+  const porPaciente = {};
+  Object.keys(_banoGridState).forEach(dia => {
+    Object.keys(_banoGridState[dia]).forEach(slotId => {
+      _banoGridState[dia][slotId].forEach(it => {
+        if (!porPaciente[it.pacienteId]) porPaciente[it.pacienteId] = [];
+        porPaciente[it.pacienteId].push({
+          dia: Number(dia),
+          slotId,
+          bloqAnterior: !!it.bloqAnterior,
+          bloqSiguiente: !!it.bloqSiguiente
+        });
+      });
+    });
+  });
+
+  const ahora = new Date().toISOString();
+  Pacientes.activos().forEach(pac => {
+    Pacientes.actualizar(pac.id, { bañosSemana: porPaciente[pac.id] || [], bañosSemanaFecha: ahora });
+  });
+
+  mostrarToast('Horarios de baño guardados', 'success');
+  _banoGridState = null;
+  renderVista();
 }
 
 // ─── Vista: Pacientes ─────────────────────────────────────────────────────────
