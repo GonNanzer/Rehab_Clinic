@@ -74,6 +74,20 @@ function _discPrioritariaDisponible(discsPrioridad, profsDisponibles, estadoDia,
   return discsPrioridad[0];
 }
 
+// Restricción dura: una disciplina no puede repetirse en dos slots
+// consecutivos para el mismo paciente (ni con la sesión anterior ni con la
+// siguiente). Se compara por índice en SLOTS, así que el slot de almuerzo
+// (que tiene disciplina '_almuerzo' y nunca coincide con una disciplina
+// real) separa naturalmente a la mañana de la tarde.
+function _generaConsecutividad(pacienteId, disciplina, slotIdx, sesionesActuales) {
+  const prevSlot = SLOTS[slotIdx - 1];
+  const nextSlot = SLOTS[slotIdx + 1];
+  const mismaDisc = s => s.pacienteId === pacienteId && s.disciplina === disciplina;
+  if (prevSlot && sesionesActuales.some(s => s.slotId === prevSlot.id && mismaDisc(s))) return true;
+  if (nextSlot && sesionesActuales.some(s => s.slotId === nextSlot.id && mismaDisc(s))) return true;
+  return false;
+}
+
 // ─── Construcción de necesidades ─────────────────────────────────────────────
 
 /*
@@ -236,27 +250,31 @@ function calcularPuntaje(prof, slot, slotIdx, paciente, disciplina, esAlmuerzo, 
   // Orden ideal de terapias
   if (!esAlmuerzo) {
     // KTR: restricción de posicionamiento al inicio de turno.
-    // Con una sola KTR diaria → inicio de mañana (slot_09, idx 0).
-    // Con dos o más → la primera en slot_09, la siguiente en inicio de tarde (slot_14, idx 4).
-    // Índices SLOTS: 0=09h 1=10h 2=11h 3=12h(almuerzo) 4=14h 5=15h 6=16h 7=17h 8=18h
+    // Con una sola KTR diaria → inicio de mañana (slot_08, idx 0).
+    // Con dos o más → la primera en slot_08, la siguiente en inicio de tarde (slot_14, idx 5).
+    // Índices SLOTS: 0=08h 1=09h 2=10h 3=11h 4=12h(almuerzo) 5=14h 6=15h 7=16h 8=17h 9=18h
     if (disciplina === 'kinesiologiaRespiratoria') {
       const ktrHoy = sesionesActuales.filter(
         s => s.pacienteId === paciente.id && s.disciplina === 'kinesiologiaRespiratoria'
       ).length;
       const bonusKtr = ktrHoy === 0
-        ? [30, 12, 5, 0, 0, 0, 0, 0, 0][slotIdx] || 0   // primera: inicio turno mañana
-        : [0,  0,  0, 0, 30, 12, 5, 2, 0][slotIdx] || 0; // siguiente: inicio turno tarde
+        ? [30, 12, 5, 0, 0, 0,  0,  0, 0, 0][slotIdx] || 0   // primera: inicio turno mañana
+        : [0,  0,  0, 0, 0, 30, 12, 5, 2, 0][slotIdx] || 0;  // siguiente: inicio turno tarde
       if (bonusKtr > 0) {
         total += bonusKtr;
         motivos.push(`KTR inicio de turno ${ktrHoy === 0 ? 'mañana' : 'tarde'} +${bonusKtr}`);
       }
     } else {
+      // Curvas simétricas por turno: cada disciplina tiene su pico tanto a la
+      // mañana como a la tarde, en el orden ideal del recorrido del paciente
+      // (kinesiología primero para activar el cuerpo, después TO, después
+      // fono, y neuropsicología/psicología más tarde en el turno).
       const SLOT_ORDER_BONUS = {
-        kinesiologia:       [3, 6, 9, 6, 3, 0, 0, 0, 0],
-        fonoaudiologia:     [0, 0, 3, 0, 6, 9, 6, 3, 0],
-        terapiaOcupacional: [0, 0, 3, 0, 6, 9, 6, 3, 0],
-        neuropsicologia:    [0, 0, 0, 0, 3, 6, 9, 6, 3],
-        psicologia:         [0, 0, 0, 0, 3, 6, 9, 6, 3]
+        kinesiologia:       [9, 6, 3, 0, 0,  9, 6, 3, 0, 0],
+        terapiaOcupacional: [3, 9, 6, 0, 0,  3, 9, 6, 3, 0],
+        fonoaudiologia:     [0, 3, 9, 6, 0,  0, 3, 9, 6, 3],
+        neuropsicologia:    [0, 0, 3, 9, 0,  0, 0, 3, 9, 6],
+        psicologia:         [0, 0, 3, 9, 0,  0, 0, 3, 9, 6]
       };
       const orderBonus = (SLOT_ORDER_BONUS[disciplina] || [])[slotIdx] || 0;
       if (orderBonus > 0) {
@@ -264,29 +282,25 @@ function calcularPuntaje(prof, slot, slotIdx, paciente, disciplina, esAlmuerzo, 
         motivos.push(`Orden preferido de terapia +${orderBonus}`);
       }
     }
+
+    // Evitar acumular la misma disciplina en un solo turno: si el paciente ya
+    // tiene esta disciplina hoy en el mismo turno (mañana/tarde) que el slot
+    // candidato, penalizar para empujar la siguiente sesión hacia el otro
+    // turno (ej.: kinesiología una vez a la mañana y otra a la tarde).
+    const yaEnEsteTurno = sesionesActuales.some(s => {
+      if (s.pacienteId !== paciente.id || s.disciplina !== disciplina) return false;
+      const slotSes = SLOTS.find(sl => sl.id === s.slotId);
+      return slotSes && slotSes.turno === slot.turno;
+    });
+    if (yaEnEsteTurno) {
+      total -= 40;
+      motivos.push(`Ya tiene ${disciplina} en el turno ${slot.turno} — mejor el otro turno`);
+    }
   }
 
-  // Penalización por horas seguidas de la misma disciplina.
-  // Kinesiología tolera hasta MAX_CONSECUTIVAS_MISMA_DISCIPLINA (2) seguidas;
-  // el resto de las disciplinas solo puede tener 1 consecutiva.
-  if (!esAlmuerzo) {
-    const maxConsec = disciplina === 'kinesiologia' ? MAX_CONSECUTIVAS_MISMA_DISCIPLINA : 1;
-    let consecutivas = 0;
-    for (let i = slotIdx - 1; i >= 0; i--) {
-      const prevSlot = SLOTS[i];
-      const prevSesion = sesionesActuales.find(s =>
-        s.pacienteId === paciente.id &&
-        s.slotId === prevSlot.id &&
-        s.disciplina === disciplina
-      );
-      if (prevSesion) consecutivas++;
-      else break;
-    }
-    if (consecutivas >= maxConsec) {
-      total -= 80;
-      motivos.push(`Penalización: ${consecutivas + 1} horas seguidas de ${disciplina}`);
-    }
-  }
+  // La repetición de disciplina en slots consecutivos ahora es una restricción
+  // dura (ver _generaConsecutividad), aplicada antes de llegar a este cálculo
+  // de puntaje — por eso ya no hace falta penalizarla acá.
 
   // Para almuerzo terapéutico: fonoaudiología y terapia ocupacional son prioritarias
   // sobre cualquier otra disciplina que el paciente pudiera tener configurada
@@ -331,6 +345,8 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
       if (patientSlots[paciente.id][s.id]) return false;     // ocupado o bloqueado
       if (s.esAlmuerzo && paciente.requiereAlmuerzoTerapeutico) return false; // reservado para almuerzo
       if (esAlmuerzo) return s.esAlmuerzo;
+      const idx = SLOTS.findIndex(sl => sl.id === s.id);
+      if (_generaConsecutividad(paciente.id, disciplina, idx, sesionesActuales)) return false;
       return true;
     });
   }
@@ -1096,6 +1112,7 @@ function generarAgendaSlotPorSlot(fecha) {
         const candidatos = pacientesActivos.filter(pac => {
           if (!(remainingNeeds[pac.id]?.[disc] > 0)) return false;
           if (patientSlots[pac.id][slot.id]) return false;
+          if (_generaConsecutividad(pac.id, disc, slotIdx, sesiones)) return false;
           if (prof.grupoExclusivo && pac.grupo !== prof.grupoExclusivo) return false;
           if (isKtrDual) {
             if (pac.bloqueaKTR) return false;
@@ -1321,6 +1338,11 @@ function mejoraLocal(fecha) {
             if (!slotLiberadoDef) continue;
             if (!_profEnTurno(estado, prof.id, slotLiberadoDef.turno, fecha)) continue;
 
+            // El slot liberado no puede quedar adyacente a otra sesión de la
+            // misma disciplina que ya tenga nuestro paciente
+            const idxLiberado = SLOTS.findIndex(s => s.id === slotLiberadoDef.id);
+            if (_generaConsecutividad(pac.id, nec.disciplina, idxLiberado, sesiones)) continue;
+
             // Buscar un nuevo slot al que mover la sesión obstáculo
             const pacDonor = Pacientes.porId(sesObstáculo.pacienteId);
             if (!pacDonor) continue;
@@ -1337,6 +1359,11 @@ function mejoraLocal(fecha) {
               // Verificar horario específico del prof en el nuevo slot
               const horariosProf = (prof.horariosPorDia || {})[diaNumSwap];
               if (horariosProf && horariosProf.length > 0 && !horariosProf.includes(nuevoSlot.id)) continue;
+
+              // Que el donante tampoco quede con la misma disciplina en slots consecutivos
+              const idxNuevo = SLOTS.findIndex(s => s.id === nuevoSlot.id);
+              const sesionesSinObstaculo = sesiones.filter(s => s.id !== sesObstáculo.id);
+              if (_generaConsecutividad(pacDonor.id, sesObstáculo.disciplina, idxNuevo, sesionesSinObstaculo)) continue;
 
               // ¡Swap válido!
               const idxObs = sesiones.findIndex(s => s.id === sesObstáculo.id);

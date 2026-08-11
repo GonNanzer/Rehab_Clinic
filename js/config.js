@@ -110,7 +110,6 @@ const SLOTS = [
 
 const HORAS_OBJETIVO_DIA = 6;
 const VENTANA_ROTACION_DIAS_ASISTENCIA = 3;
-const MAX_CONSECUTIVAS_MISMA_DISCIPLINA = 2;
 const VISITAS_MINIMAS_REFERENTE_SEMANA = 2;
 
 // Grupos diagnósticos de pacientes
