@@ -78,6 +78,7 @@ let fechaActiva = new Date().toISOString().split('T')[0];
 let vistaActiva = 'grilla';
 let pacientesLayout = 'cards';      // 'cards' | 'lista'
 let profesionalesLayout = 'cards';  // 'cards' | 'lista'
+let banosLayout = 'grilla';         // 'grilla' | 'paciente'
 let pacientesOrden = 'apellido';    // 'apellido' | 'grupo'
 let profesionalesOrden = 'apellido'; // 'apellido' | 'disciplina'
 let modoSwap = null;                // { sesionId, fecha } mientras se espera la segunda sesión
@@ -124,9 +125,9 @@ function _idsProfsPresentes(estado, fecha) {
 function navegarA(vista) {
   if (modoRotacion) cancelarModoRotacion();
   if (modoSwap) cancelarModoSwap();
-  // Al entrar de nuevo a la grilla de baños (desde otra vista) recargamos
-  // desde los datos actuales, por si se editó algo desde la vista clásica.
-  if (vista === 'banosGrilla' && vistaActiva !== 'banosGrilla') _banoGridState = null;
+  // Al entrar de nuevo a Horarios de Baño (desde otra vista) recargamos la
+  // grilla desde los datos actuales, por si se editó algo mientras tanto.
+  if (vista === 'banos' && vistaActiva !== 'banos') _banoGridState = null;
   vistaActiva = vista;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === vista));
   renderVista();
@@ -141,7 +142,6 @@ function renderVista() {
     case 'pacientes':     contenedor.innerHTML = vistaPacientes();     bindPacientes();     break;
     case 'lista-prof':    contenedor.innerHTML = vistaListaProf();  bindListaProf();       break;
     case 'banos':         contenedor.innerHTML = vistaBanos();                              break;
-    case 'banosGrilla':   contenedor.innerHTML = vistaBanosGrilla();     bindBanosGrilla();  break;
     case 'egresados':     contenedor.innerHTML = vistaEgresados();     bindEgresados();     break;
     case 'profesionales': contenedor.innerHTML = vistaProfesionales(); bindProfesionales(); break;
     case 'practicantes':  contenedor.innerHTML = vistaPracticantes();  bindPracticantes();  break;
@@ -2553,11 +2553,32 @@ function bindPracticantes() {
 function vistaBanos() {
   const pacientes = Pacientes.activos().sort((a,b) => a.apellido.localeCompare(b.apellido));
 
+  const layoutToggle = `<div class="layout-toggle">
+    <button class="layout-btn${banosLayout==='grilla'?' active':''}" onclick="setBanosLayout('grilla')" title="Grilla (hora × día)">🗓️ Grilla</button>
+    <button class="layout-btn${banosLayout==='paciente'?' active':''}" onclick="setBanosLayout('paciente')" title="Por paciente">👤 Por paciente</button>
+  </div>`;
+
+  const header = `<div class="vista-header">
+    <div class="vista-header-left"><h2>Horarios de Baño</h2></div>
+    <div class="vista-header-right">${layoutToggle}</div>
+  </div>`;
+
   if (pacientes.length === 0) {
-    return `<div class="vista-header"><h2>Horarios de Baño</h2></div>
-            <p class="text-muted" style="padding:24px">No hay pacientes activos.</p>`;
+    return header + `<p class="text-muted" style="padding:24px">No hay pacientes activos.</p>`;
   }
 
+  return header + (banosLayout === 'grilla' ? _banosVistaGrilla() : _banosVistaPorPaciente(pacientes));
+}
+
+function setBanosLayout(modo) {
+  // Al pasar a la grilla, recargamos su estado desde los datos actuales
+  // (por si se acaba de guardar algo desde la vista "Por paciente").
+  if (modo === 'grilla' && banosLayout !== 'grilla') _banoGridState = null;
+  banosLayout = modo;
+  renderVista();
+}
+
+function _banosVistaPorPaciente(pacientes) {
   // Calcular lunes de la semana actual
   const _hoy = new Date();
   const _diffLun = _hoy.getDay() === 0 ? 6 : _hoy.getDay() - 1;
@@ -2579,14 +2600,8 @@ function vistaBanos() {
     return `<th class="bano-th-hora${fuera}" title="${_SLOT_IDS_SET.has(h.id) ? '' : 'Fuera del horario terapéutico'}">${h.label}</th>`;
   }).join('');
 
-  let html = `<div class="vista-header">
-    <div class="vista-header-left">
-      <h2>Horarios de Baño</h2>
-      <span class="text-muted" style="font-size:13px">${semanaLabel}</span>
-    </div>
-    <div class="vista-header-right">
-      <span class="text-muted" style="font-size:12px">Bloqueos estructurales recurrentes por paciente</span>
-    </div>
+  let html = `<div class="text-muted" style="font-size:12px;margin-bottom:10px">
+    ${semanaLabel} — Bloqueos estructurales recurrentes por paciente
   </div>`;
 
   pacientes.forEach(pac => {
@@ -2703,11 +2718,7 @@ function _cargarBanoGridState() {
   return estado;
 }
 
-function vistaBanosGrilla() {
-  if (Pacientes.activos().length === 0) {
-    return `<div class="vista-header"><h2>Carga rápida de baños</h2></div>
-      <p class="text-muted" style="padding:24px">No hay pacientes activos.</p>`;
-  }
+function _banosVistaGrilla() {
   if (!_banoGridState) _banoGridState = _cargarBanoGridState();
 
   const thDias = _BANO_DIAS.map(d => `<th>${esc(d.label)}</th>`).join('');
@@ -2718,17 +2729,12 @@ function vistaBanosGrilla() {
     return `<tr><td class="bano-grilla-hora">${h.label}</td>${celdas}</tr>`;
   }).join('');
 
-  return `<div class="vista-header">
-    <div class="vista-header-left">
-      <h2>Carga rápida de baños</h2>
-      <span class="text-muted" style="font-size:12px">
-        Elegí el/los paciente/s de cada casillero — mismo dato que "Horarios de Baño", se guarda como bloqueo semanal recurrente.
-      </span>
-    </div>
-    <div class="vista-header-right">
-      <button class="btn btn-secondary" onclick="_banoGridState=null;renderVista()">↺ Descartar cambios</button>
-      <button class="btn btn-primary" onclick="guardarBanoGrilla()">Guardar</button>
-    </div>
+  return `<div class="text-muted" style="font-size:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <span>Elegí el/los paciente/s de cada casillero — se guarda como bloqueo semanal recurrente.</span>
+    <span style="display:flex;gap:8px;flex-shrink:0">
+      <button class="btn btn-sm btn-secondary" onclick="_banoGridState=null;renderVista()">↺ Descartar cambios</button>
+      <button class="btn btn-sm btn-primary" onclick="guardarBanoGrilla()">Guardar</button>
+    </span>
   </div>
   <div class="bano-grilla-scroll">
     <table class="bano-grilla-tabla">
@@ -2736,11 +2742,6 @@ function vistaBanosGrilla() {
       <tbody>${filas}</tbody>
     </table>
   </div>`;
-}
-
-function bindBanosGrilla() {
-  // Las celdas se repintan individualmente (ver _banoRepintarCelda), así que
-  // no hace falta bindear nada acá: todo usa atributos inline (oninput/onclick).
 }
 
 function _banoRenderCell(dia, slotId) {
