@@ -2749,7 +2749,7 @@ function _banoRenderCell(dia, slotId) {
   const chips = items.map(it => {
     const pac = Pacientes.porId(it.pacienteId);
     return `<div class="bano-chip">
-      <span class="bano-chip-nombre" title="${esc(pac ? pac.apellido + ', ' + pac.nombre : '')}">${esc(pac?.apellido || '?')}</span>
+      <span class="bano-chip-nombre" title="${esc(pac ? pac.apellido + ', ' + pac.nombre : '')}">${esc(pac?.apellido || '?')} ${esc(pac?.nombre || '')}</span>
       <button type="button" class="bano-chip-flag${it.bloqAnterior ? ' activo' : ''}"
         title="Bloquear la hora anterior" onclick="_banoToggleFlag(${dia},'${slotId}','${it.pacienteId}','bloqAnterior')">◀</button>
       <button type="button" class="bano-chip-flag${it.bloqSiguiente ? ' activo' : ''}"
