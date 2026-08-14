@@ -226,6 +226,9 @@ function vistaGrilla() {
         ${profsHoy.map(p => `<option value="${p.id}" ${filtroProf === p.id ? 'selected' : ''}>${esc(p.apellido)}${p.nombre ? ', ' + esc(p.nombre) : ''}</option>`).join('')}
       </select>` : ''}
 
+      ${Asignaciones.puedeDeshacer()
+        ? '<button class="btn btn-secondary" onclick="deshacerAgenda()" data-tooltip="Deshacer la última acción de agenda (Ctrl+Z)">↩ Deshacer</button>'
+        : '<button class="btn btn-secondary" onclick="deshacerAgenda()" data-tooltip="No hay acciones para deshacer" disabled>↩ Deshacer</button>'}
       <button class="btn btn-secondary" onclick="window.print()"
         data-tooltip="Abre el diálogo de impresión del navegador con la agenda del día formateada.">🖨 Imprimir</button>
       <button class="btn btn-secondary" onclick="exportarGrillaPDF()"
@@ -537,6 +540,19 @@ function vistaGrilla() {
   html = grillaPlusSidebar;
   html += _alertasHtml;
   return html;
+}
+
+function deshacerAgenda() {
+  if (!Asignaciones.puedeDeshacer()) {
+    mostrarToast('No hay acciones para deshacer', 'warning');
+    return;
+  }
+  Asignaciones.deshacer();
+  sesionesCola     = [];
+  modoColocarDeCola = null;
+  modoMover        = null;
+  mostrarToast('Deshecho', 'success');
+  renderVista();
 }
 
 function toggleSidebar() {
@@ -5231,6 +5247,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Inicializar capa de persistencia (intenta reconectar archivo vinculado)
   inicializarPersistencia().then(() => renderVista());
+
+  // Ctrl+Z → deshacer última acción de agenda
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      const activo = document.activeElement;
+      if (activo && (activo.tagName === 'INPUT' || activo.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      deshacerAgenda();
+    }
+  });
 
   renderVista();
 });

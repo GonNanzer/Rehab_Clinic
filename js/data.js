@@ -387,7 +387,27 @@ const Asignaciones = {
     return this.todos()[fecha] || [];
   },
 
+  // ── Historial de deshacer (en memoria, no persiste entre recargas) ──
+  _historial: [],
+  _MAX_HISTORIAL: 30,
+
+  _snapshot() {
+    const estado = JSON.stringify(this.todos());
+    if (this._historial.length && this._historial[this._historial.length - 1] === estado) return;
+    this._historial.push(estado);
+    if (this._historial.length > this._MAX_HISTORIAL) this._historial.shift();
+  },
+
+  puedeDeshacer() { return this._historial.length > 0; },
+
+  deshacer() {
+    if (!this._historial.length) return false;
+    escribirStorage(STORAGE_KEYS.asignaciones, JSON.parse(this._historial.pop()));
+    return true;
+  },
+
   guardarDia(fecha, sesiones) {
+    this._snapshot();
     const todos = this.todos();
     todos[fecha] = sesiones;
     return escribirStorage(STORAGE_KEYS.asignaciones, todos);
@@ -398,6 +418,7 @@ const Asignaciones = {
     const idx = sesiones.findIndex(s => s.id === sesionId);
     if (idx < 0) return false;
     const antes = { ...sesiones[idx] };
+    this._snapshot();
     sesiones[idx] = {
       ...sesiones[idx],
       ...cambios,
@@ -422,6 +443,7 @@ const Asignaciones = {
     const sesiones = this.delDia(fecha);
     const idx = sesiones.findIndex(s => s.id === sesionId);
     if (idx < 0) return false;
+    this._snapshot();
     sesiones[idx] = { ...sesiones[idx], fijo: !!fijo };
     const todos = this.todos();
     todos[fecha] = sesiones;
