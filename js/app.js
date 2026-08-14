@@ -323,6 +323,7 @@ function vistaGrilla() {
               ${activo
                 ? `<button class="btn btn-sm btn-secondary" onclick="cancelarColocarDeCola()">✕ Cancelar</button>`
                 : `<button class="btn btn-sm btn-primary"   onclick="iniciarColocarDeCola(${idx})">↕ Colocar</button>`}
+              ${!activo && item.slotOriginal ? `<button class="btn btn-sm btn-warning-outline" onclick="forzarColocarEnOriginal(${idx})" title="Asignar en el slot original aunque haya conflicto de profesional">⚡</button>` : ''}
               <button class="btn btn-sm btn-danger-outline" onclick="descartarDeCola(${idx})">🗑</button>
             </div>
           </div>`;
@@ -1272,44 +1273,41 @@ function _desplazarACola(sesion, fecha) {
   Asignaciones.guardarDia(fecha, sesiones);
 }
 
-function abrirModalConflicto(sesionConflicto, descripcion, cbForzar) {
+function abrirModalConflicto(sesionConflicto, descripcion, cbDesplazar, cbSolapado) {
   const pac  = Pacientes.porId(sesionConflicto.pacienteId);
   const prof = Profesionales.porId(sesionConflicto.profesionalId);
   const slot = SLOTS.find(s => s.id === sesionConflicto.slotId);
-  window._cbForzarConflicto = () => { cbForzar(sesionConflicto); };
-  abrirModal(`
-    <div class="modal-header">
-      <h3>Conflicto de horario</h3>
-      <button class="modal-close" onclick="cerrarModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <p class="text-muted" style="margin-bottom:12px">${esc(descripcion)}</p>
-      <div class="conflicto-sesion-card">
-        <div class="conflicto-sesion-fila">
-          <span class="conflicto-lbl">Paciente</span>
-          <span>${esc(pac?.apellido || '—')}${pac?.nombre ? ', ' + esc(pac.nombre) : ''}</span>
-        </div>
-        <div class="conflicto-sesion-fila">
-          <span class="conflicto-lbl">Disciplina</span>
-          ${discChip(sesionConflicto.disciplina, true)}
-        </div>
-        <div class="conflicto-sesion-fila">
-          <span class="conflicto-lbl">Profesional</span>
-          <span>${esc(Profesionales.nombreCompleto(prof))}</span>
-        </div>
-        <div class="conflicto-sesion-fila">
-          <span class="conflicto-lbl">Horario</span>
-          <span>${esc(slot?.label || sesionConflicto.slotId)}</span>
-        </div>
-      </div>
-      <div class="conflicto-advertencia">
-        ⚠ Esta sesión se retirará de la grilla y quedará en la cola de pendientes para que la reasignes.
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn btn-warning" onclick="window._cbForzarConflicto()">Desplazar y continuar →</button>
-    </div>`);
+  window._cbForzarConflicto  = () => { cbDesplazar(sesionConflicto); };
+  window._cbSolapadoConflicto = cbSolapado ? () => { cbSolapado(); } : null;
+  abrirModal(
+    '<div class="modal-header">'
+    + '<h3>Conflicto de horario</h3>'
+    + '<button class="modal-close" onclick="cerrarModal()">✕</button>'
+    + '</div>'
+    + '<div class="modal-body">'
+    + '<p class="text-muted" style="margin-bottom:12px">' + esc(descripcion) + '</p>'
+    + '<div class="conflicto-sesion-card">'
+    + '<div class="conflicto-sesion-fila"><span class="conflicto-lbl">Paciente</span>'
+    + '<span>' + esc(pac?.apellido || '—') + (pac?.nombre ? ', ' + esc(pac.nombre) : '') + '</span></div>'
+    + '<div class="conflicto-sesion-fila"><span class="conflicto-lbl">Disciplina</span>'
+    + discChip(sesionConflicto.disciplina, true) + '</div>'
+    + '<div class="conflicto-sesion-fila"><span class="conflicto-lbl">Profesional</span>'
+    + '<span>' + esc(Profesionales.nombreCompleto(prof)) + '</span></div>'
+    + '<div class="conflicto-sesion-fila"><span class="conflicto-lbl">Horario</span>'
+    + '<span>' + esc(slot?.label || sesionConflicto.slotId) + '</span></div>'
+    + '</div>'
+    + '<div class="conflicto-advertencia">'
+    + (cbSolapado
+      ? '⚠ Podés desplazar esta sesión a la cola, o forzar la asignación doble en el mismo horario.'
+      : '⚠ Esta sesión se retirará de la grilla y quedará en la cola de pendientes para que la reasignes.')
+    + '</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>'
+    + '<button class="btn btn-warning" onclick="window._cbForzarConflicto()">Desplazar a cola →</button>'
+    + (cbSolapado ? '<button class="btn btn-danger" onclick="window._cbSolapadoConflicto()" title="Asigna igual aunque rompa la regla de exclusividad del profesional">⚡ Forzar solapado</button>' : '')
+    + '</div>'
+  );
 }
 
 function iniciarColocarDeCola(idx) {
@@ -1321,6 +1319,52 @@ function iniciarColocarDeCola(idx) {
 function cancelarColocarDeCola() {
   modoColocarDeCola = null;
   renderVista();
+}
+
+function forzarColocarEnOriginal(idx) {
+  const item = sesionesCola[idx];
+  if (!item) return;
+  const fecha    = fechaActiva;
+  const sesiones = Asignaciones.delDia(fecha);
+  const slotId   = item.slotOriginal;
+
+  // Conflicto de paciente: nunca se puede forzar (un paciente no puede estar en dos sesiones)
+  const conflictoPac = sesiones.find(s => s.pacienteId === item.pacienteId && s.slotId === slotId);
+  if (conflictoPac) {
+    mostrarToast('El paciente ya tiene otra sesión en ese horario — no se puede forzar', 'error');
+    return;
+  }
+
+  // Conflicto de profesional: confirmar solapado
+  const conflictoProf = sesiones.find(s => s.profesionalId === item.profesionalId && s.slotId === slotId);
+  if (conflictoProf) {
+    const profNombre  = Profesionales.porId(item.profesionalId)?.apellido || 'El profesional';
+    const pacOcupado  = Pacientes.porId(conflictoProf.pacienteId)?.apellido || '—';
+    const slot        = SLOTS.find(s => s.id === slotId);
+    window._cbSolapadoForzar = function() {
+      cerrarModal();
+      _colocarItemDeCola(idx, slotId, fecha);
+    };
+    abrirModal(
+      '<div class="modal-header">'
+      + '<h3>Forzar solapado</h3>'
+      + '<button class="modal-close" onclick="cerrarModal()">✕</button>'
+      + '</div>'
+      + '<div class="modal-body">'
+      + '<p>' + esc(profNombre) + ' ya tiene asignado a <strong>' + esc(pacOcupado) + '</strong>'
+      + ' en <strong>' + esc(slot?.label || slotId) + '</strong>.</p>'
+      + '<div class="conflicto-advertencia">⚠ Se asignará igualmente. El profesional quedará con dos sesiones en el mismo horario.</div>'
+      + '</div>'
+      + '<div class="modal-footer">'
+      + '<button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>'
+      + '<button class="btn btn-danger" onclick="window._cbSolapadoForzar()">⚡ Confirmar solapado</button>'
+      + '</div>'
+    );
+    return;
+  }
+
+  // Sin conflicto relevante: colocar directo
+  _colocarItemDeCola(idx, slotId, fecha);
 }
 
 function descartarDeCola(idx) {
@@ -1362,12 +1406,18 @@ function ejecutarColocarDeCola(slotId, fecha) {
     const ningBloquea  = !pacNuevo?.bloqueaKTR && !pacExistente?.bloqueaKTR;
     if (!esKtrDual || !mismoEdif || !ningBloquea) {
       const profNombre = Profesionales.porId(item.profesionalId)?.apellido || 'El profesional';
-      abrirModalConflicto(conflictoProf,
-        `${profNombre} ya tiene una sesión en ese horario.`,
+      const idxCola = modoColocarDeCola.idx;
+      abrirModalConflicto(
+        conflictoProf,
+        profNombre + ' ya tiene una sesión en ese horario.',
         (sc) => {
           _desplazarACola(sc, fecha);
           cerrarModal();
-          _colocarItemDeCola(modoColocarDeCola.idx, slotId, fecha);
+          _colocarItemDeCola(idxCola, slotId, fecha);
+        },
+        () => {
+          cerrarModal();
+          _colocarItemDeCola(idxCola, slotId, fecha);
         }
       );
       return;
