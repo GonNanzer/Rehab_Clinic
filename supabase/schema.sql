@@ -26,11 +26,12 @@ create table if not exists usuarios_permitidos (
 create or replace function is_allowed_user()
 returns boolean
 language sql
-security definer
+security invoker
 stable
+set search_path = ''
 as $$
   select exists (
-    select 1 from usuarios_permitidos
+    select 1 from public.usuarios_permitidos
     where email = auth.jwt() ->> 'email'
       and activo = true
   );
