@@ -98,7 +98,7 @@ function _generaConsecutividad(pacienteId, disciplina, slotIdx, sesionesActuales
 
 /*
  * Devuelve una lista de "necesidades" para el paciente en el día dado.
- * Cada ítem es: { tipo, disciplina, esAlmuerzo, slotForzado, urgente, motivoUrgente, prioridad }
+ * Cada ítem es: { tipo, disciplina, esAlmuerzo, slotForzado, urgente, motivoUrgente, prioridad, profesionalId? }
  */
 function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgentes, fecha) {
   const necesidades = [];
@@ -123,14 +123,16 @@ function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgen
     });
   }
 
-  // 2. Prescripciones urgentes del día
+  // 2. Prescripciones urgentes del día / Asignaciones necesarias
   (prescripcionesUrgentes || []).forEach(p => {
     for (let i = 0; i < (p.veces || 1); i++) {
-      necesidades.push({
+      const nec = {
         tipo: 'urgente', disciplina: p.disciplina,
         esAlmuerzo: false, urgente: true,
         motivoUrgente: p.motivo, prioridad: 9
-      });
+      };
+      if (p.profesionalId) nec.profesionalId = p.profesionalId;
+      necesidades.push(nec);
     }
   });
 
@@ -415,6 +417,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
     } else {
       const _estadoSlot = DiasState.delDia(fecha);
       profsValidos = profsDisponibles.filter(p => {
+        if (necesidad.profesionalId && p.id !== necesidad.profesionalId) return false;
         if (!_profEnTurno(_estadoSlot, p.id, slot.turno, fecha)) return false;
         if (!(p.disciplinas || []).includes(disciplina)) return false;
         // Grupo exclusivo: el profesional solo atiende su grupo asignado

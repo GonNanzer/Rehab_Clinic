@@ -1113,7 +1113,7 @@ function abrirModalSesion(sesionId, fecha) {
     <div class="motivo-box">
       <span class="motivo-text">${esc(sesion.motivo || 'Sin criterios registrados')}</span>
     </div>
-    ${sesion.urgente ? `<div class="badge badge-danger" style="margin-top:8px">🚨 Prescripción urgente</div>` : ''}
+    ${sesion.urgente ? `<div class="badge badge-danger" style="margin-top:8px">🚨 Asignación necesaria</div>` : ''}
 
     <div class="sesion-acciones">
       <div class="sesion-accion-bloque">
@@ -2434,7 +2434,7 @@ function _pacienteCard(p) {
       </div>
     </div>
     <div class="card-body">
-      ${transf ? `<div class="label-row" style="margin-bottom:6px">Transferencias: <strong>${transf.label}</strong></div>` : ''}
+      ${transf ? `<div class="label-row" style="margin-bottom:6px">Prioridad en agenda: <strong>${transf.label}</strong></div>` : ''}
       <div class="label-row">Disciplinas:</div>
       <div>${(_discsDelPlan(p.id)).map(d => discChip(d, true)).join(' ') || '<em class="text-muted">Sin plan cargado</em>'}</div>
       ${p.requiereAlmuerzoTerapeutico ? `<div class="mt-4">${discChip('_almuerzo', true)} <span class="text-muted" style="font-size:11px">${(p.disciplinasAlmuerzo||[]).length ? p.disciplinasAlmuerzo.map(d => DISCIPLINAS[d]?.corto||d).join(' → ') : '— Elegir —'}</span></div>` : ''}
@@ -3027,7 +3027,7 @@ function vistaPacientes() {
       });
     } else {
       html += `<table class="lista-tabla"><thead><tr>
-        <th>Paciente</th><th>Edificio</th><th>Ingreso</th><th>Grupo</th><th>Transferencias</th><th>Disciplinas</th><th></th>
+        <th>Paciente</th><th>Edificio</th><th>Ingreso</th><th>Grupo</th><th>Prioridad</th><th>Disciplinas</th><th></th>
       </tr></thead><tbody>`;
       grupos.forEach(gk => {
         const g = GRUPOS_DIAGNOSTICOS[gk];
@@ -3047,7 +3047,7 @@ function vistaPacientes() {
       html += `<div class="card-grid">${pacientes.map(_pacienteCard).join('')}</div>`;
     } else {
       html += `<table class="lista-tabla"><thead><tr>
-        <th>Paciente</th><th>Edificio</th><th>Ingreso</th><th>Grupo</th><th>Transferencias</th><th>Disciplinas</th><th></th>
+        <th>Paciente</th><th>Edificio</th><th>Ingreso</th><th>Grupo</th><th>Prioridad</th><th>Disciplinas</th><th></th>
       </tr></thead><tbody>`;
       html += pacientes.map(_pacienteRow).join('');
       html += `</tbody></table>`;
@@ -3199,11 +3199,11 @@ function abrirFormPaciente(pac) {
         </select>
       </div>
       <div class="form-group">
-        <label>Transferencias</label>
+        <label>Prioridad en el armado de agenda</label>
         <select id="pac-transferencias" class="select-field">
           <option value="">— Sin asignar —</option>
-          ${Object.entries(TRANSFERENCIAS).map(([key, t]) =>
-            `<option value="${key}" ${pac?.transferencias === key ? 'selected' : ''}>${esc(t.label)}</option>`
+          ${['alta','media','baja'].map(key =>
+            `<option value="${key}" ${(pac?.transferencias === key || TRANSFERENCIAS[pac?.transferencias]?.label === TRANSFERENCIAS[key]?.label) ? 'selected' : ''}>${esc(TRANSFERENCIAS[key].label)}</option>`
           ).join('')}
         </select>
       </div>
@@ -4271,19 +4271,21 @@ function vistaDisponibilidad() {
       </div>
 
       <div class="card">
-        <div class="card-head"><strong>Prescripciones urgentes del día</strong> — ${esc(pac?.nombre||'')} ${esc(pac?.apellido||'')}</div>
+        <div class="card-head"><strong>Asignaciones necesarias</strong> — ${esc(pac?.nombre||'')} ${esc(pac?.apellido||'')}</div>
         <div class="card-body">
-          <div class="text-muted" style="margin-bottom:8px">Sesiones indicadas por el médico que deben asignarse hoy:</div>
+          <div class="text-muted" style="margin-bottom:8px">Sesiones que deben asignarse hoy para este paciente:</div>
           <div id="lista-prescripciones">
-            ${prescripciones.length === 0 ? '<em>Sin prescripciones urgentes</em>' :
-              prescripciones.map((pr, i) => `
-              <div class="prescripcion-item">
-                ${discChip(pr.disciplina, true)} x${pr.veces} — ${esc(pr.motivo)}
-                <button class="btn btn-sm btn-danger" onclick="eliminarPrescripcion(${i})">✕</button>
-              </div>`).join('')
+            ${prescripciones.length === 0 ? '<em>Sin asignaciones necesarias</em>' :
+              prescripciones.map((pr, i) => {
+                const profLabel = pr.profesionalId ? (Profesionales.porId(pr.profesionalId) ? esc(Profesionales.porId(pr.profesionalId).nombre + ' ' + Profesionales.porId(pr.profesionalId).apellido) : 'Prof. desconocido') : 'Cualquier profesional';
+                return `<div class="prescripcion-item">
+                  ${discChip(pr.disciplina, true)} x${pr.veces}${pr.profesionalId ? ' · <strong>' + profLabel + '</strong>' : ''}${pr.motivo ? ' — ' + esc(pr.motivo) : ''}
+                  <button class="btn btn-sm btn-danger" onclick="eliminarPrescripcion(${i})">✕</button>
+                </div>`;
+              }).join('')
             }
           </div>
-          <button class="btn btn-secondary mt-4" id="btn-add-prescripcion">+ Agregar prescripción</button>
+          <button class="btn btn-secondary mt-4" id="btn-add-prescripcion">+ Agregar asignación necesaria</button>
         </div>
       </div>
     </div>
@@ -4451,21 +4453,39 @@ function eliminarPrescripcion(idx) {
   renderVista();
 }
 
+function _profsPresEnDisc(disc) {
+  const estado = DiasState.delDia(fechaActiva);
+  const presencia = estado.presenciaProfesionales || {};
+  return Profesionales.activos().filter(p =>
+    presencia[p.id] && (p.disciplinas || []).includes(disc)
+  );
+}
+
 function abrirModalPrescripcion() {
   const pac = Pacientes.porId(pacSeleccionadoDisp);
   const discsReq = pac ? _discsDelPlan(pac.id) : Object.keys(DISCIPLINAS);
   const discsOpts = discsReq.length > 0 ? discsReq : Object.keys(DISCIPLINAS);
+  const primeraDisc = discsOpts[0] || '';
+  const profsInicial = primeraDisc ? _profsPresEnDisc(primeraDisc) : [];
   const html = `
   <div class="modal-header">
-    <h3>Agregar prescripción urgente</h3>
+    <h3>Agregar asignación necesaria</h3>
     <button class="modal-close" onclick="cerrarModal()">✕</button>
   </div>
   <div class="modal-body modal-form">
     <div class="form-group">
       <label>Disciplina</label>
-      <select id="presc-disc" class="select-field">
+      <select id="presc-disc" class="select-field" onchange="_actualizarProfsModal()">
         ${discsOpts.map(d => `<option value="${d}">${esc(DISCIPLINAS[d]?.label||d)}</option>`).join('')}
       </select>
+    </div>
+    <div class="form-group">
+      <label>Profesional</label>
+      <select id="presc-prof" class="select-field">
+        <option value="">— Cualquiera —</option>
+        ${profsInicial.map(p => `<option value="${p.id}">${esc(p.nombre + ' ' + p.apellido)}</option>`).join('')}
+      </select>
+      <div class="text-muted" style="font-size:12px;margin-top:4px">Solo muestra profesionales presentes hoy con esa disciplina</div>
     </div>
     <div class="form-group">
       <label>Cantidad de sesiones</label>
@@ -4483,16 +4503,28 @@ function abrirModalPrescripcion() {
   abrirModal(html);
 }
 
+function _actualizarProfsModal() {
+  const disc = document.getElementById('presc-disc')?.value;
+  const sel  = document.getElementById('presc-prof');
+  if (!sel || !disc) return;
+  const profs = _profsPresEnDisc(disc);
+  sel.innerHTML = '<option value="">— Cualquiera —</option>' +
+    profs.map(p => `<option value="${p.id}">${esc(p.nombre + ' ' + p.apellido)}</option>`).join('');
+}
+
 function guardarPrescripcion() {
-  const disc = document.getElementById('presc-disc').value;
-  const veces = parseInt(document.getElementById('presc-veces').value) || 1;
-  const motivo = document.getElementById('presc-motivo').value.trim();
-  const presc = DiasState.delDia(fechaActiva).prescripcionesUrgentes?.[pacSeleccionadoDisp] || [];
-  presc.push({ disciplina: disc, veces, motivo });
+  const disc        = document.getElementById('presc-disc').value;
+  const profId      = document.getElementById('presc-prof').value || null;
+  const veces       = parseInt(document.getElementById('presc-veces').value) || 1;
+  const motivo      = document.getElementById('presc-motivo').value.trim();
+  const presc       = DiasState.delDia(fechaActiva).prescripcionesUrgentes?.[pacSeleccionadoDisp] || [];
+  const entrada = { disciplina: disc, veces, motivo };
+  if (profId) entrada.profesionalId = profId;
+  presc.push(entrada);
   DiasState.setPrescripcionesUrgentes(fechaActiva, pacSeleccionadoDisp, presc);
   cerrarModal();
   renderVista();
-  mostrarToast('Prescripción agregada', 'success');
+  mostrarToast('Asignación necesaria agregada', 'success');
 }
 
 // ─── Vista: Métricas ─────────────────────────────────────────────────────────

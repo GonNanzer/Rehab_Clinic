@@ -119,13 +119,18 @@ const GRUPOS_DIAGNOSTICOS = {
   medular: { label: 'Medular', color: '#0891b2', bg: '#cffafe', border: '#67e8f9' }
 };
 
-// Nivel de asistencia para transferencias — define la prioridad de scheduling
-// (mayor prioridad = se asigna antes cuando hay recursos limitados)
+// Prioridad en el armado de agenda — define en qué orden se asignan los pacientes
+// cuando los recursos son limitados (mayor prioridad = se asigna antes)
 const TRANSFERENCIAS = {
-  asistenciaCompleta: { label: 'Asistencia completa',  prioridad: 4 },
-  mediaAsistencia:    { label: 'Media asistencia',     prioridad: 3 },
-  minimaAsistencia:   { label: 'Mínima asistencia',   prioridad: 2 },
-  grua:               { label: 'Grúa',                 prioridad: 1 }
+  // Nuevas claves (Alta/Media/Baja)
+  alta:  { label: 'Alta',  prioridad: 3 },
+  media: { label: 'Media', prioridad: 2 },
+  baja:  { label: 'Baja',  prioridad: 1 },
+  // Claves legacy (compat con datos existentes)
+  asistenciaCompleta: { label: 'Alta',  prioridad: 3 },
+  mediaAsistencia:    { label: 'Media', prioridad: 2 },
+  minimaAsistencia:   { label: 'Baja',  prioridad: 1 },
+  grua:               { label: 'Baja',  prioridad: 1 }
 };
 
 const STORAGE_KEYS = {
