@@ -5556,6 +5556,27 @@ function vistaMiDisponibilidad() {
     const atenuado = esNoLaboral && !hayAviso ? 'mi-disp-card--atenuado' : '';
     const marcado  = ausente ? 'mi-disp-card--ausente' : trabaja ? 'mi-disp-card--activo' : '';
 
+    const esLaboral = diasL.has(dw);
+
+    // Fila de botones: distinta según si el día es laboral o no
+    const toggleRow = esLaboral
+      ? `<div class="mi-disp-toggle-row">
+           <button class="mi-disp-toggle-btn ${ausente ? 'active-ausente' : ''} chk-mi-ausente"
+                   data-fecha="${fecha}" data-ausente="${ausente ? '1' : '0'}">
+             Voy a faltar
+           </button>
+           <button class="mi-disp-toggle-btn ${trabaja ? 'active-trabaja' : ''} chk-mi-trabaja"
+                   data-fecha="${fecha}" data-trabaja="${trabaja ? '1' : '0'}">
+             Cambiar horario
+           </button>
+         </div>`
+      : `<div class="mi-disp-toggle-row">
+           <button class="mi-disp-toggle-btn ${trabaja ? 'active-trabaja' : ''} chk-mi-concurrir"
+                   data-fecha="${fecha}" data-trabaja="${trabaja ? '1' : '0'}">
+             Voy a concurrir
+           </button>
+         </div>`;
+
     return `<div class="mi-disp-card ${atenuado} ${marcado}" data-fecha="${fecha}">
       <div class="mi-disp-card-header">
         <div>
@@ -5567,17 +5588,7 @@ function vistaMiDisponibilidad() {
           : ''}
       </div>
 
-      <div class="mi-disp-toggle-row">
-        <button class="mi-disp-toggle-btn ${ausente ? 'active-ausente' : ''} chk-mi-ausente"
-                data-fecha="${fecha}" data-ausente="${ausente ? '1' : '0'}">
-          Voy a faltar
-        </button>
-        <button class="mi-disp-toggle-btn ${trabaja ? 'active-trabaja' : ''} chk-mi-trabaja"
-                data-fecha="${fecha}" data-trabaja="${trabaja ? '1' : '0'}">
-          Cambiar horario
-        </button>
-      </div>
-
+      ${toggleRow}
       ${horarioBlock}
     </div>`;
   }).join('');
@@ -5625,20 +5636,26 @@ function _abrirModalAviso(fecha, tipo) {
   const retActual = (typeof avisoAct === 'object' ? avisoAct.retiro  : null) || '18:00';
   const fechaLabel = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 
+  const horasHtml = `
+    <div style="display:flex;gap:16px;margin-top:14px">
+      <div style="flex:1">
+        <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Ingreso</label>
+        ${_horasSelect('modal-ing', ingActual)}
+      </div>
+      <div style="flex:1">
+        <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Retiro</label>
+        ${_horasSelect('modal-ret', retActual)}
+      </div>
+    </div>`;
+
   const bodyHtml = tipo === 'ausente'
     ? `<p>Vas a avisar que <strong>faltás el ${fechaLabel}</strong>.</p>
        <p style="color:var(--text-muted);font-size:13px">El coordinador verá este aviso al planificar el día.</p>`
+    : tipo === 'concurrir'
+    ? `<p>Vas a avisar que <strong>concurrís el ${fechaLabel}</strong>, aunque no es tu día habitual.</p>
+       ${horasHtml}`
     : `<p>Vas a avisar que <strong>el ${fechaLabel} entrás y salís a otro horario</strong>.</p>
-       <div style="display:flex;gap:16px;margin-top:14px">
-         <div style="flex:1">
-           <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Ingreso</label>
-           ${_horasSelect('modal-ing', ingActual)}
-         </div>
-         <div style="flex:1">
-           <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Retiro</label>
-           ${_horasSelect('modal-ret', retActual)}
-         </div>
-       </div>`;
+       ${horasHtml}`;
 
   abrirModal(`
     <div class="modal-header"><h3>Modificar disponibilidad</h3></div>
@@ -5663,7 +5680,10 @@ async function confirmarAviso(fecha, tipo) {
   const ok = await _guardarAvisoEnSupabase(fecha);
   if (ok) {
     const lbl = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
-    mostrarToast(tipo === 'ausente' ? `Aviso guardado: faltás el ${lbl}` : `Horario guardado para el ${lbl}`, 'success');
+    const msg = tipo === 'ausente'   ? `Aviso guardado: faltás el ${lbl}`
+              : tipo === 'concurrir' ? `Aviso guardado: concurrís el ${lbl}`
+              :                        `Horario guardado para el ${lbl}`;
+    mostrarToast(msg, 'success');
   }
   renderVista();
 }
@@ -5692,7 +5712,21 @@ function bindMiDisponibilidad() {
     });
   });
 
-  // Botón "Cambiar horario" — con confirmación + selects en el modal; quitar es directo
+  // Botón "Voy a concurrir" (días no laborales) — con confirmación
+  document.querySelectorAll('.chk-mi-concurrir').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fecha    = btn.dataset.fecha;
+      const yaActivo = btn.dataset.trabaja === '1';
+      if (yaActivo) {
+        _guardarAviso(fecha, null);
+        _guardarAvisoEnSupabase(fecha).then(() => renderVista());
+      } else {
+        _abrirModalAviso(fecha, 'concurrir');
+      }
+    });
+  });
+
+  // Botón "Cambiar horario" (días laborales) — con confirmación + selects en el modal; quitar es directo
   document.querySelectorAll('.chk-mi-trabaja').forEach(btn => {
     btn.addEventListener('click', () => {
       const fecha    = btn.dataset.fecha;
