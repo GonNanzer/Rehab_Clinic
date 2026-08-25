@@ -249,6 +249,11 @@ body.rol-profesional .admin-only { display: none; }
 .rol-badge-profesional{ background: #d1fae5; color: #065f46; }
 .rol-badge-pendiente  { background: #fef3c7; color: #92400e; }
 
+/* ── Vista: Mi disponibilidad (profesional) ──────────────────────────────────── */
+.mi-disp-fila td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 13px; }
+.mi-disp-fila:last-child td { border-bottom: none; }
+.mi-disp-fila:hover td { background: var(--bg); }
+
 /* ── Vista: Mi agenda (profesional) ──────────────────────────────────────────── */
 .mi-agenda-lista { display: flex; flex-direction: column; gap: 8px; }
 .mi-agenda-sesion {

@@ -170,8 +170,9 @@ function renderVista() {
     case 'auditoria':     contenedor.innerHTML = vistaAuditoria();                                  break;
     case 'sesionRapida':  contenedor.innerHTML = vistaSesionRapida();      bindSesionRapida();      break;
     case 'usuarios':      contenedor.innerHTML = vistaUsuarios();          bindUsuarios();          break;
-    case 'mi-agenda':     contenedor.innerHTML = vistaAgendaProfesional(); bindAgendaProfesional(); break;
-    case 'mi-perfil':     contenedor.innerHTML = vistaPerfilProfesional(); bindPerfilProfesional(); break;
+    case 'mi-agenda':          contenedor.innerHTML = vistaAgendaProfesional();    bindAgendaProfesional();    break;
+    case 'mi-disponibilidad':  contenedor.innerHTML = vistaMiDisponibilidad();    bindMiDisponibilidad();    break;
+    case 'mi-perfil':          contenedor.innerHTML = vistaPerfilProfesional();   bindPerfilProfesional();   break;
     default: contenedor.innerHTML = '<p>Vista no encontrada</p>';
   }
 }
@@ -5405,6 +5406,191 @@ async function revocarUsuario(uid, email) {
   _userProfiles = null;
   mostrarToast('Acceso revocado', 'success');
   renderVista();
+}
+
+// ─── Vista: Mi disponibilidad (profesional) ──────────────────────────────────
+
+let _miDispLunes = null; // fecha ISO del lunes de la semana visible
+
+function _lunesDeHoy() {
+  const hoy = new Date();
+  const dw  = hoy.getDay();
+  hoy.setDate(hoy.getDate() - (dw === 0 ? 6 : dw - 1));
+  return hoy.toISOString().split('T')[0];
+}
+
+function _addDays(fechaISO, n) {
+  const d = new Date(fechaISO + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split('T')[0];
+}
+
+function vistaMiDisponibilidad() {
+  const profId = usuarioActual?.profesionalId;
+  if (!profId) {
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Mi disponibilidad</h2></div></div>
+      <div class="card" style="padding:40px;text-align:center">
+        <p class="text-muted">Tu usuario aún no está vinculado a un profesional.<br>Contactá al administrador.</p>
+      </div>`;
+  }
+
+  if (!_miDispLunes) _miDispLunes = _lunesDeHoy();
+
+  const prof  = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
+  const diasL = new Set(prof?.diasLaborales || []);
+
+  // Armar array de los 7 días de la semana visible
+  const dias = Array.from({ length: 7 }, (_, i) => {
+    const fecha = _addDays(_miDispLunes, i);
+    const dw    = _weekday(fecha);
+    const estadoGuardado = DiasState.todos()[fecha];
+    const hayConfig = estadoGuardado && 'presenciaProfesionales' in estadoGuardado;
+    const presMap   = hayConfig ? (estadoGuardado.presenciaProfesionales || {}) : null;
+
+    let estado; // 'dia' | 'manana' | 'tarde' | null (ausente) | 'habitual'
+    if (presMap !== null) {
+      estado = presMap[profId] ?? null; // null = ausencia explícita
+    } else {
+      estado = diasL.has(dw) ? 'habitual' : null;
+    }
+
+    return { fecha, dw, estado, hayConfig };
+  });
+
+  const nombresDia = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const hoy = new Date().toISOString().split('T')[0];
+
+  const filas = dias.map(({ fecha, dw, estado, hayConfig }) => {
+    const esHoy    = fecha === hoy;
+    const ausente  = estado === null;
+    const presente = !ausente;
+    const turno    = (!ausente && estado !== 'habitual') ? estado : 'dia';
+    const esHabitual = estado === 'habitual';
+
+    const labelFecha = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
+
+    const badgeHoy = esHoy ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;font-size:10px">Hoy</span>' : '';
+    const badgeMod = hayConfig && estado !== 'habitual' && !esHabitual
+      ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:10px">Modificado</span>' : '';
+
+    return `<tr class="mi-disp-fila" data-fecha="${fecha}">
+      <td style="font-weight:${esHoy?700:400};min-width:140px">
+        <span style="text-transform:capitalize">${esc(labelFecha)}</span>
+        ${badgeHoy} ${badgeMod}
+      </td>
+      <td>
+        <label class="check-label" style="gap:8px">
+          <input type="checkbox" class="chk-mi-presente" data-fecha="${fecha}" ${presente ? 'checked' : ''}>
+          ${presente ? 'Trabajo ese día' : '<span class="text-muted">No trabajo ese día</span>'}
+        </label>
+      </td>
+      <td class="mi-disp-turno-cell" ${ausente ? 'style="opacity:.35;pointer-events:none"' : ''}>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
+          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="manana" data-fecha="${fecha}" ${turno==='manana'?'checked':''}>
+          Mañana
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
+          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="tarde"  data-fecha="${fecha}" ${turno==='tarde'?'checked':''}>
+          Tarde
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:6px">
+          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="dia"    data-fecha="${fecha}" ${turno==='dia'?'checked':''}>
+          Día completo
+        </label>
+      </td>
+      <td>
+        ${hayConfig && !esHabitual
+          ? `<button class="btn btn-sm btn-secondary btn-reset-disp" data-fecha="${fecha}" style="font-size:11px">↺ Restablecer</button>`
+          : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const lunesLabel = new Date(_miDispLunes + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
+  const domLabel   = new Date(_addDays(_miDispLunes, 6) + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
+
+  return `
+  <div class="vista-header">
+    <div class="vista-header-left">
+      <h2>Mi disponibilidad</h2>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head" style="justify-content:space-between">
+      <button class="btn btn-sm btn-secondary" id="btn-disp-semana-ant">← Semana anterior</button>
+      <span style="font-size:14px;font-weight:600">${lunesLabel} — ${domLabel}</span>
+      <button class="btn btn-sm btn-secondary" id="btn-disp-semana-sig">Semana siguiente →</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function _guardarPresenciaProp(fecha, val) {
+  const profId = usuarioActual?.profesionalId;
+  if (!profId) return;
+  const pres = { ...(DiasState.delDia(fecha).presenciaProfesionales || {}) };
+  if (!val) {
+    delete pres[profId];
+  } else {
+    pres[profId] = val;
+  }
+  DiasState.setProfesionalesPresencia(fecha, pres);
+}
+
+function _resetPresenciaProp(fecha) {
+  const profId = usuarioActual?.profesionalId;
+  if (!profId) return;
+  const estadoGuardado = DiasState.todos()[fecha];
+  if (!estadoGuardado || !('presenciaProfesionales' in estadoGuardado)) return;
+  const pres = { ...(estadoGuardado.presenciaProfesionales || {}) };
+  delete pres[profId];
+  DiasState.setProfesionalesPresencia(fecha, pres);
+}
+
+function bindMiDisponibilidad() {
+  document.getElementById('btn-disp-semana-ant')?.addEventListener('click', () => {
+    _miDispLunes = _addDays(_miDispLunes, -7);
+    renderVista();
+  });
+  document.getElementById('btn-disp-semana-sig')?.addEventListener('click', () => {
+    _miDispLunes = _addDays(_miDispLunes, 7);
+    renderVista();
+  });
+
+  document.querySelectorAll('.chk-mi-presente').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const fecha = chk.dataset.fecha;
+      if (chk.checked) {
+        _guardarPresenciaProp(fecha, 'dia');
+      } else {
+        // Ausencia explícita: necesitamos que presenciaProfesionales exista y no tenga al prof
+        const estadoGuardado = DiasState.todos()[fecha];
+        const pres = { ...(estadoGuardado?.presenciaProfesionales || {}) };
+        const profId = usuarioActual?.profesionalId;
+        delete pres[profId];
+        // Forzar que la clave exista (para distinguir de "nunca configurado")
+        DiasState.setProfesionalesPresencia(fecha, pres);
+      }
+      renderVista();
+    });
+  });
+
+  document.querySelectorAll('.radio-mi-turno').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (radio.checked) _guardarPresenciaProp(radio.dataset.fecha, radio.value);
+    });
+  });
+
+  document.querySelectorAll('.btn-reset-disp').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _resetPresenciaProp(btn.dataset.fecha);
+      renderVista();
+    });
+  });
 }
 
 // ─── Vista: Mi agenda (profesional) ──────────────────────────────────────────
