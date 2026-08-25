@@ -4199,7 +4199,7 @@ function vistaDisponibilidad() {
     <div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <!-- Card bloqueos de paciente -->
-        <div class="card">
+        <div class="card" style="display:flex;flex-direction:column">
           <div class="card-head" style="flex-wrap:wrap;gap:4px">
             <strong>Bloqueos del paciente</strong>
             ${derivados.includes(pacSeleccionadoDisp) ? '<span class="badge badge-danger" style="font-size:11px">🏥 Derivado</span>' : ''}
@@ -4209,7 +4209,7 @@ function vistaDisponibilidad() {
               ).join('')}
             </select>
           </div>
-          <div class="card-body">
+          <div class="card-body" style="flex:1;overflow-y:auto;max-height:420px">
             <div class="text-muted" style="margin-bottom:10px;font-size:12px">Horarios bloqueados para ${esc(pac?.nombre||'')}:</div>
             ${(pac?.bloqueosPermanentes||[]).length > 0 ? `
             <div class="bloq-tipo-legend" style="font-size:11px;margin-bottom:8px">
