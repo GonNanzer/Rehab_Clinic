@@ -216,6 +216,60 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 }
 .date-input { font-size: 13px; }
 
+/* ── Visibilidad por rol ──────────────────────────────────────────────────────── */
+/* Por defecto todo oculto hasta que el rol se asigne al body */
+.admin-only, .pro-only { display: none; }
+/* Admin ve solo items admin */
+body.rol-admin .admin-only  { display: flex; }
+body.rol-admin .pro-only    { display: none; }
+/* Profesional ve solo items pro */
+body.rol-profesional .pro-only   { display: flex; }
+body.rol-profesional .admin-only { display: none; }
+
+/* ── Vista pendiente ─────────────────────────────────────────────────────────── */
+.pendiente-wrap {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; background: var(--bg);
+}
+.pendiente-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-md);
+  padding: 48px 40px; max-width: 440px; width: 100%; text-align: center;
+}
+.pendiente-card h2 { margin-bottom: 12px; }
+.pendiente-card p  { color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+
+/* ── Vista: Usuarios (admin) ─────────────────────────────────────────────────── */
+.usuarios-tabla { width: 100%; border-collapse: collapse; }
+.usuarios-tabla th { padding: 10px 12px; border-bottom: 2px solid var(--border); text-align: left; font-size: 12px; text-transform: uppercase; color: var(--text-muted); }
+.usuarios-tabla td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+.usuarios-tabla tr:last-child td { border-bottom: none; }
+.usuarios-tabla tr:hover td { background: var(--bg); }
+.rol-badge-admin      { background: #dbeafe; color: #1d4ed8; }
+.rol-badge-profesional{ background: #d1fae5; color: #065f46; }
+.rol-badge-pendiente  { background: #fef3c7; color: #92400e; }
+
+/* ── Vista: Mi agenda (profesional) ──────────────────────────────────────────── */
+.mi-agenda-lista { display: flex; flex-direction: column; gap: 8px; }
+.mi-agenda-sesion {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; background: var(--card-bg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 13px;
+}
+.mi-agenda-hora { font-weight: 700; min-width: 52px; color: var(--text-muted); }
+.mi-agenda-pac  { font-weight: 600; flex: 1; }
+.mi-agenda-empty { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: 14px; }
+.mi-agenda-stats {
+  display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.mi-agenda-stat {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 20px; text-align: center; flex: 1; min-width: 120px;
+}
+.mi-agenda-stat strong { display: block; font-size: 28px; font-weight: 700; color: var(--color-info); }
+.mi-agenda-stat span   { font-size: 12px; color: var(--text-muted); }
+
 /* ── Cards ───────────────────────────────────────────────────────────────────── */
 .card {
   background: var(--card-bg); border: 1px solid var(--border);

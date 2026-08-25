@@ -1,10 +1,11 @@
-// auth.js — Guard de sesión y control de acceso (allowlist)
+// auth.js — Guard de sesión y control de acceso
 //
-// Se usa desde index.html y viewer.html. Antes de cargar datos, cada página
-// debe llamar a requireAuth() y esperar a que resuelva. Si no hay sesión
-// válida o el email no está en la allowlist, redirige a login.html.
+// Roles:
+//   'admin'       → en tabla usuarios_permitidos (flujo existente, acceso total)
+//   'profesional' → en tabla user_profiles con rol='profesional'
+//   'pendiente'   → en user_profiles con rol='pendiente' (esperando aprobación admin)
 
-let usuarioActual = null; // { email, nombre }
+let usuarioActual = null; // { email, nombre, rol, profesionalId }
 
 async function requireAuth() {
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -15,27 +16,71 @@ async function requireAuth() {
   }
 
   const email = session.user.email;
+  const uid   = session.user.id;
 
-  const { data: permitido, error } = await supabaseClient
+  // ── 1. Verificar si es admin (tabla usuarios_permitidos) ──────────────────
+  const { data: permitido } = await supabaseClient
     .from('usuarios_permitidos')
     .select('email, nombre, activo')
     .eq('email', email)
     .maybeSingle();
 
-  if (error || !permitido || permitido.activo === false) {
-    await supabaseClient.auth.signOut();
-    _irALogin('no_autorizado');
-    return null;
+  if (permitido && permitido.activo !== false) {
+    usuarioActual = {
+      email,
+      nombre:        permitido.nombre || email.split('@')[0],
+      rol:           'admin',
+      profesionalId: null,
+    };
+    _watchSignOut();
+    return usuarioActual;
   }
 
-  usuarioActual = { email, nombre: permitido.nombre || email.split('@')[0] };
+  // ── 2. Verificar perfil en user_profiles ──────────────────────────────────
+  let { data: perfil } = await supabaseClient
+    .from('user_profiles')
+    .select('*')
+    .eq('auth_user_id', uid)
+    .maybeSingle();
 
-  // Reaccionar si la sesión expira o el usuario cierra sesión en otra pestaña
+  if (!perfil) {
+    // Primer login: crear perfil pendiente
+    const { error } = await supabaseClient.from('user_profiles').insert({
+      auth_user_id: uid,
+      email,
+      rol: 'pendiente',
+    });
+    if (error) console.error('Error creando perfil pendiente:', error);
+    perfil = { rol: 'pendiente', email, profesional_id: null };
+  }
+
+  if (perfil.rol === 'pendiente') {
+    usuarioActual = { email, nombre: email.split('@')[0], rol: 'pendiente', profesionalId: null };
+    _watchSignOut();
+    return usuarioActual; // la app muestra pantalla de "pendiente"
+  }
+
+  if (perfil.rol === 'profesional' || perfil.rol === 'admin') {
+    usuarioActual = {
+      email,
+      nombre:        email.split('@')[0],
+      rol:           perfil.rol,
+      profesionalId: perfil.profesional_id || null,
+    };
+    _watchSignOut();
+    return usuarioActual;
+  }
+
+  // Estado desconocido
+  await supabaseClient.auth.signOut();
+  _irALogin('no_autorizado');
+  return null;
+}
+
+function _watchSignOut() {
   supabaseClient.auth.onAuthStateChange((evento) => {
     if (evento === 'SIGNED_OUT') _irALogin();
   });
-
-  return usuarioActual;
 }
 
 function _irALogin(motivo) {

@@ -19,70 +19,88 @@
     </div>
 
     <nav class="sidebar-nav">
-      <button class="nav-btn active" data-vista="grilla"
+      <!-- ── Vistas exclusivas del profesional ──────────────────────────── -->
+      <button class="nav-btn pro-only" data-vista="mi-agenda"
+        data-tooltip="Tus sesiones asignadas para el día seleccionado." data-tooltip-pos="right">
+        <span class="nav-icon">📅</span>
+        <span>Mi agenda</span>
+      </button>
+      <button class="nav-btn nav-sub pro-only" data-vista="mi-perfil"
+        data-tooltip="Editá tus horarios disponibles y grupos de preferencia." data-tooltip-pos="right">
+        <span class="nav-icon">👤</span>
+        <span>Mi perfil</span>
+      </button>
+
+      <!-- ── Vistas de admin ─────────────────────────────────────────────── -->
+      <button class="nav-btn admin-only active" data-vista="grilla"
         data-tooltip="Vista principal: grilla de sesiones del día por paciente. Generá, editá y reorganizá sesiones arrastrándolas." data-tooltip-pos="right">
         <span class="nav-icon">📅</span>
         <span>Agenda del día</span>
       </button>
-      <button class="nav-btn nav-sub" data-vista="lista-prof"
+      <button class="nav-btn nav-sub admin-only" data-vista="lista-prof"
         data-tooltip="Mismas sesiones del día vistas por profesional en lugar de por paciente." data-tooltip-pos="right">
         <span class="nav-icon">📋</span>
         <span>Lista por profesional</span>
       </button>
-      <button class="nav-btn nav-sub nav-mobile-only" data-vista="sesionRapida"
+      <button class="nav-btn nav-sub nav-mobile-only admin-only" data-vista="sesionRapida"
         data-tooltip="Generador simple de sesiones fijas: día, paciente, horario, disciplina y profesional, sin usar la grilla." data-tooltip-pos="right">
         <span class="nav-icon">⚡</span>
         <span>Nueva sesión fija</span>
       </button>
-      <button class="nav-btn" data-vista="disponibilidad"
+      <button class="nav-btn admin-only" data-vista="disponibilidad"
         data-tooltip="Indicá qué profesionales asisten hoy, si vienen a la mañana, tarde o día completo, y quiénes quedan excluidos de la asignación automática." data-tooltip-pos="right">
         <span class="nav-icon">✅</span>
         <span>Disponibilidad</span>
       </button>
-      <button class="nav-btn" data-vista="pacientes"
+      <button class="nav-btn admin-only" data-vista="pacientes"
         data-tooltip="Gestioná el padrón de pacientes: diagnóstico, prescripciones de terapias, bloqueos de horario y prioridad de asignación." data-tooltip-pos="right">
         <span class="nav-icon">👥</span>
         <span>Pacientes</span>
       </button>
-      <button class="nav-btn nav-sub" data-vista="banos"
+      <button class="nav-btn nav-sub admin-only" data-vista="banos"
         data-tooltip="Configurá los horarios de baño semanales de cada paciente para que el algoritmo no les asigne sesiones en esos slots." data-tooltip-pos="right">
         <span class="nav-icon">🛁</span>
         <span>Horarios de Baño</span>
       </button>
-      <button class="nav-btn nav-sub" data-vista="egresados"
+      <button class="nav-btn nav-sub admin-only" data-vista="egresados"
         data-tooltip="Pacientes que ya no forman parte de la agenda diaria. Podés reactivarlos en cualquier momento." data-tooltip-pos="right">
         <span class="nav-icon">🎓</span>
         <span>Egresados</span>
       </button>
-      <button class="nav-btn" data-vista="profesionales"
+      <button class="nav-btn admin-only" data-vista="profesionales"
         data-tooltip="Gestioná el padrón de profesionales: disciplinas, días laborales, horarios disponibles y cuota semanal máxima." data-tooltip-pos="right">
         <span class="nav-icon">👨‍⚕️</span>
         <span>Profesionales</span>
       </button>
-      <button class="nav-btn nav-sub" data-vista="practicantes"
+      <button class="nav-btn nav-sub admin-only" data-vista="practicantes"
         data-tooltip="Practicantes: se muestran como disponibles en la agenda pero no reciben asignaciones automáticas." data-tooltip-pos="right">
         <span class="nav-icon">🎓</span>
         <span>Practicantes</span>
       </button>
-      <button class="nav-btn" data-vista="planes"
+      <button class="nav-btn admin-only" data-vista="planes"
         data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
         <span class="nav-icon">📋</span>
         <span>Planes semanales</span>
       </button>
-      <button class="nav-btn" data-vista="metricas"
+      <button class="nav-btn admin-only" data-vista="metricas"
         data-tooltip="Indicadores de calidad del scheduling: cobertura, distribución de carga entre profesionales e índices históricos." data-tooltip-pos="right">
         <span class="nav-icon">📊</span>
         <span>Métricas</span>
       </button>
-      <button class="nav-btn" data-vista="historial"
+      <button class="nav-btn admin-only" data-vista="historial"
         data-tooltip="Registro de agendas generadas en días anteriores con su índice de calidad y alertas." data-tooltip-pos="right">
         <span class="nav-icon">🕐</span>
         <span>Historial</span>
       </button>
-      <button class="nav-btn" data-vista="auditoria"
+      <button class="nav-btn admin-only" data-vista="auditoria"
         data-tooltip="Log de todos los cambios manuales realizados sobre la agenda: movimientos, agregados y eliminaciones." data-tooltip-pos="right">
         <span class="nav-icon">📝</span>
         <span>Auditoría</span>
+      </button>
+      <button class="nav-btn admin-only" data-vista="usuarios"
+        data-tooltip="Gestioná los usuarios de la app: aprobá accesos de profesionales y asignales su perfil." data-tooltip-pos="right">
+        <span class="nav-icon">🔑</span>
+        <span>Usuarios</span>
       </button>
     </nav>
 

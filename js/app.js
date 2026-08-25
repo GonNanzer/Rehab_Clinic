@@ -156,19 +156,22 @@ function navegarA(vista) {
 function renderVista() {
   const contenedor = document.getElementById('vista');
   switch (vistaActiva) {
-    case 'grilla':        contenedor.innerHTML = vistaGrilla();        bindGrilla();        break;
-    case 'pacientes':     contenedor.innerHTML = vistaPacientes();     bindPacientes();     break;
-    case 'lista-prof':    contenedor.innerHTML = vistaListaProf();  bindListaProf();       break;
-    case 'banos':         contenedor.innerHTML = vistaBanos();                              break;
-    case 'egresados':     contenedor.innerHTML = vistaEgresados();     bindEgresados();     break;
-    case 'profesionales': contenedor.innerHTML = vistaProfesionales(); bindProfesionales(); break;
-    case 'practicantes':  contenedor.innerHTML = vistaPracticantes();  bindPracticantes();  break;
-    case 'planes':        contenedor.innerHTML = vistaPlanes();        bindPlanes();        break;
-    case 'disponibilidad':contenedor.innerHTML = vistaDisponibilidad();bindDisponibilidad();break;
-    case 'metricas':      contenedor.innerHTML = vistaMetricas();      bindMetricas();      break;
-    case 'historial':     contenedor.innerHTML = vistaHistorial();     bindHistorial();     break;
-    case 'auditoria':     contenedor.innerHTML = vistaAuditoria();                          break;
-    case 'sesionRapida':  contenedor.innerHTML = vistaSesionRapida();     bindSesionRapida(); break;
+    case 'grilla':        contenedor.innerHTML = vistaGrilla();            bindGrilla();            break;
+    case 'pacientes':     contenedor.innerHTML = vistaPacientes();         bindPacientes();         break;
+    case 'lista-prof':    contenedor.innerHTML = vistaListaProf();         bindListaProf();         break;
+    case 'banos':         contenedor.innerHTML = vistaBanos();                                      break;
+    case 'egresados':     contenedor.innerHTML = vistaEgresados();         bindEgresados();         break;
+    case 'profesionales': contenedor.innerHTML = vistaProfesionales();     bindProfesionales();     break;
+    case 'practicantes':  contenedor.innerHTML = vistaPracticantes();      bindPracticantes();      break;
+    case 'planes':        contenedor.innerHTML = vistaPlanes();            bindPlanes();            break;
+    case 'disponibilidad':contenedor.innerHTML = vistaDisponibilidad();    bindDisponibilidad();    break;
+    case 'metricas':      contenedor.innerHTML = vistaMetricas();          bindMetricas();          break;
+    case 'historial':     contenedor.innerHTML = vistaHistorial();         bindHistorial();         break;
+    case 'auditoria':     contenedor.innerHTML = vistaAuditoria();                                  break;
+    case 'sesionRapida':  contenedor.innerHTML = vistaSesionRapida();      bindSesionRapida();      break;
+    case 'usuarios':      contenedor.innerHTML = vistaUsuarios();          bindUsuarios();          break;
+    case 'mi-agenda':     contenedor.innerHTML = vistaAgendaProfesional(); bindAgendaProfesional(); break;
+    case 'mi-perfil':     contenedor.innerHTML = vistaPerfilProfesional(); bindPerfilProfesional(); break;
     default: contenedor.innerHTML = '<p>Vista no encontrada</p>';
   }
 }
@@ -5258,6 +5261,323 @@ function mostrarToast(mensaje, tipo = 'info') {
   }, 3000);
 }
 
+// ─── Vista: Usuarios (admin) ──────────────────────────────────────────────────
+
+let _userProfiles = null; // cache
+
+async function _cargarUserProfiles() {
+  const { data, error } = await supabaseClient
+    .from('user_profiles')
+    .select('*')
+    .order('creado_en', { ascending: false });
+  if (error) { console.error('Error cargando user_profiles:', error); return; }
+  _userProfiles = data || [];
+  if (vistaActiva === 'usuarios') {
+    document.getElementById('vista').innerHTML = vistaUsuarios();
+    bindUsuarios();
+  }
+}
+
+function vistaUsuarios() {
+  if (!_userProfiles) {
+    _cargarUserProfiles();
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Usuarios</h2></div></div>
+            <div class="text-muted" style="padding:40px;text-align:center">Cargando...</div>`;
+  }
+
+  const profs = Profesionales.activos();
+
+  const filas = _userProfiles.map(u => {
+    const rolBadge = u.rol === 'admin'
+      ? '<span class="badge rol-badge-admin">Admin</span>'
+      : u.rol === 'profesional'
+      ? '<span class="badge rol-badge-profesional">Profesional</span>'
+      : '<span class="badge rol-badge-pendiente">Pendiente</span>';
+
+    const profVinculado = u.profesional_id
+      ? (() => { const p = profs.find(x => x.id === u.profesional_id); return p ? esc(p.apellido + ', ' + p.nombre) : u.profesional_id; })()
+      : '<span class="text-muted">—</span>';
+
+    const acciones = u.rol === 'pendiente'
+      ? `<button class="btn btn-sm btn-primary" onclick="abrirModalAprobar('${u.auth_user_id}','${esc(u.email)}')">Aprobar</button>
+         <button class="btn btn-sm btn-danger" onclick="revocarUsuario('${u.auth_user_id}','${esc(u.email)}')">Rechazar</button>`
+      : `<button class="btn btn-sm btn-secondary" onclick="abrirModalAprobar('${u.auth_user_id}','${esc(u.email)}','${u.rol}','${u.profesional_id||''}')">Editar</button>
+         <button class="btn btn-sm btn-danger" onclick="revocarUsuario('${u.auth_user_id}','${esc(u.email)}')">Revocar</button>`;
+
+    const fecha = u.creado_en ? new Date(u.creado_en).toLocaleDateString('es-AR') : '';
+
+    return `<tr>
+      <td>${esc(u.email)}</td>
+      <td>${rolBadge}</td>
+      <td>${profVinculado}</td>
+      <td class="text-muted" style="font-size:12px">${fecha}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">${acciones}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="vista-header">
+    <div class="vista-header-left">
+      <h2>Usuarios</h2>
+    </div>
+    <div class="vista-header-right">
+      <button class="btn btn-secondary btn-sm" id="btn-recargar-usuarios">↺ Recargar</button>
+    </div>
+  </div>
+  <div class="card" style="overflow-x:auto">
+    ${_userProfiles.length === 0
+      ? '<div class="text-muted" style="padding:40px;text-align:center">No hay usuarios registrados todavía.</div>'
+      : `<table class="usuarios-tabla">
+          <thead><tr>
+            <th>Email</th><th>Rol</th><th>Profesional vinculado</th><th>Registro</th><th>Acciones</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>`
+    }
+  </div>`;
+}
+
+function bindUsuarios() {
+  document.getElementById('btn-recargar-usuarios')?.addEventListener('click', () => {
+    _userProfiles = null;
+    renderVista();
+  });
+}
+
+function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '') {
+  const profs = Profesionales.activos().sort((a,b) => a.apellido.localeCompare(b.apellido));
+  abrirModal(`
+    <div class="modal-header">
+      <strong>${rolActual === 'pendiente' ? 'Aprobar usuario' : 'Editar usuario'}</strong>
+      <button class="modal-close" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">${esc(email)}</p>
+      <div class="form-group">
+        <label class="form-label">Rol</label>
+        <select id="modal-usr-rol" class="select-field">
+          <option value="profesional" ${rolActual === 'profesional' ? 'selected' : ''}>Profesional</option>
+          <option value="admin"       ${rolActual === 'admin'       ? 'selected' : ''}>Admin</option>
+        </select>
+      </div>
+      <div class="form-group" id="grp-prof-vinc">
+        <label class="form-label">Profesional vinculado</label>
+        <select id="modal-usr-prof" class="select-field">
+          <option value="">— Sin vincular —</option>
+          ${profs.map(p => `<option value="${p.id}" ${p.id === profIdActual ? 'selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarUsuario('${uid}')">Guardar</button>
+    </div>`);
+
+  document.getElementById('modal-usr-rol')?.addEventListener('change', e => {
+    document.getElementById('grp-prof-vinc').style.display = e.target.value === 'profesional' ? '' : 'none';
+  });
+  if (rolActual !== 'profesional') document.getElementById('grp-prof-vinc').style.display = 'none';
+}
+
+async function guardarUsuario(uid) {
+  const rol    = document.getElementById('modal-usr-rol').value;
+  const profId = document.getElementById('modal-usr-prof')?.value || null;
+
+  const { error } = await supabaseClient
+    .from('user_profiles')
+    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null })
+    .eq('auth_user_id', uid);
+
+  if (error) { mostrarToast('Error al guardar: ' + error.message, 'error'); return; }
+  cerrarModal();
+  _userProfiles = null;
+  mostrarToast('Usuario actualizado', 'success');
+  renderVista();
+}
+
+async function revocarUsuario(uid, email) {
+  if (!confirm('¿Eliminar el acceso de ' + email + '? El usuario no podrá ingresar más.')) return;
+  const { error } = await supabaseClient
+    .from('user_profiles')
+    .delete()
+    .eq('auth_user_id', uid);
+  if (error) { mostrarToast('Error: ' + error.message, 'error'); return; }
+  _userProfiles = null;
+  mostrarToast('Acceso revocado', 'success');
+  renderVista();
+}
+
+// ─── Vista: Mi agenda (profesional) ──────────────────────────────────────────
+
+function vistaAgendaProfesional() {
+  const profId = usuarioActual?.profesionalId;
+  if (!profId) {
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Mi agenda</h2></div></div>
+      <div class="card" style="padding:40px;text-align:center">
+        <p class="text-muted">Tu usuario aún no está vinculado a un profesional.<br>Contactá al administrador para que complete tu perfil.</p>
+      </div>`;
+  }
+
+  const prof = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
+  const sesiones = Asignaciones.delDia(fechaActiva).filter(s => s.profesionalId === profId);
+
+  // Contar sesiones de la semana
+  const lunes = (() => {
+    const d = new Date(fechaActiva);
+    const dw = d.getDay();
+    d.setDate(d.getDate() - (dw === 0 ? 6 : dw - 1));
+    return d.toISOString().split('T')[0];
+  })();
+  let sesionesSemana = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(lunes);
+    d.setDate(d.getDate() + i);
+    const key = d.toISOString().split('T')[0];
+    sesionesSemana += Asignaciones.delDia(key).filter(s => s.profesionalId === profId).length;
+  }
+
+  const dw = _weekday(fechaActiva);
+  const diaLabel = new Date(fechaActiva + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const filas = sesiones.length === 0
+    ? `<div class="mi-agenda-empty">Sin sesiones asignadas para este día.</div>`
+    : sesiones
+        .sort((a,b) => (a.slotId||'').localeCompare(b.slotId||''))
+        .map(s => {
+          const slot = SLOTS.find(sl => sl.id === s.slotId);
+          const pac  = Pacientes.porId(s.pacienteId);
+          return `<div class="mi-agenda-sesion">
+            <span class="mi-agenda-hora">${slot ? slot.label : s.slotId}</span>
+            <span class="mi-agenda-pac">${pac ? esc(pac.apellido + ', ' + pac.nombre) : s.pacienteId}</span>
+            ${discChip(s.disciplina)}
+          </div>`;
+        }).join('');
+
+  return `
+  <div class="vista-header">
+    <div class="vista-header-left">
+      <h2>Mi agenda</h2>
+      <span class="text-muted" style="font-size:14px">${prof ? esc(prof.apellido + ', ' + prof.nombre) : ''}</span>
+    </div>
+  </div>
+  <div class="mi-agenda-stats">
+    <div class="mi-agenda-stat">
+      <strong>${sesiones.length}</strong>
+      <span>Sesiones hoy</span>
+    </div>
+    <div class="mi-agenda-stat">
+      <strong>${sesionesSemana}</strong>
+      <span>Esta semana</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head" style="justify-content:space-between">
+      <strong style="text-transform:capitalize">${diaLabel}</strong>
+      <input type="date" id="mi-agenda-fecha" value="${fechaActiva}" class="date-input">
+    </div>
+    <div class="card-body">
+      <div class="mi-agenda-lista">${filas}</div>
+    </div>
+  </div>`;
+}
+
+function bindAgendaProfesional() {
+  document.getElementById('mi-agenda-fecha')?.addEventListener('change', e => {
+    fechaActiva = e.target.value;
+    renderVista();
+  });
+}
+
+// ─── Vista: Mi perfil (profesional) ──────────────────────────────────────────
+
+function vistaPerfilProfesional() {
+  const profId = usuarioActual?.profesionalId;
+  if (!profId) {
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Mi perfil</h2></div></div>
+      <div class="card" style="padding:40px;text-align:center">
+        <p class="text-muted">Tu usuario aún no está vinculado a un profesional.<br>Contactá al administrador para que complete tu perfil.</p>
+      </div>`;
+  }
+
+  const prof = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
+  if (!prof) {
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Mi perfil</h2></div></div>
+      <div class="card" style="padding:40px;text-align:center">
+        <p class="text-muted">No se encontró tu registro de profesional. Contactá al administrador.</p>
+      </div>`;
+  }
+
+  const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const diasChecks = dias.map((d, i) => `
+    <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
+      <input type="checkbox" class="chk-dia-laboral" value="${i}" ${(prof.diasLaborales||[]).includes(i) ? 'checked' : ''}> ${d}
+    </label>`).join('');
+
+  const grupoEntries = Object.entries(GRUPOS_DIAGNOSTICOS || {});
+  const grupoChecks = grupoEntries.length > 0
+    ? grupoEntries.map(([gid, g]) => `
+      <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
+        <input type="checkbox" class="chk-grupo-pref" value="${gid}" ${(prof.gruposPreferencia||[]).includes(gid) ? 'checked' : ''}> ${esc(g.label||gid)}
+      </label>`).join('')
+    : '<span class="text-muted">No hay grupos definidos.</span>';
+
+  return `
+  <div class="vista-header">
+    <div class="vista-header-left">
+      <h2>Mi perfil</h2>
+    </div>
+  </div>
+  <div class="card" style="max-width:640px">
+    <div class="card-head">
+      <strong>${esc(prof.apellido + ', ' + prof.nombre)}</strong>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        ${(prof.disciplinas||[]).map(d => discChip(d)).join('')}
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Días laborales</label>
+        <div>${diasChecks}</div>
+      </div>
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Horario</label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <label style="display:inline-flex;align-items:center;gap:6px">
+            <input type="checkbox" id="chk-manana" ${prof.tieneManana !== false ? 'checked' : ''}> Mañana
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:6px">
+            <input type="checkbox" id="chk-tarde" ${prof.tieneTarde !== false ? 'checked' : ''}> Tarde
+          </label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Grupos de preferencia</label>
+        <div>${grupoChecks}</div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <button class="btn btn-primary" id="btn-guardar-mi-perfil">Guardar cambios</button>
+    </div>
+  </div>`;
+}
+
+function bindPerfilProfesional() {
+  document.getElementById('btn-guardar-mi-perfil')?.addEventListener('click', () => {
+    const profId = usuarioActual?.profesionalId;
+    const prof   = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
+    if (!prof) return;
+
+    const diasLaborales = [...document.querySelectorAll('.chk-dia-laboral:checked')].map(el => Number(el.value));
+    const tieneManana   = document.getElementById('chk-manana')?.checked ?? true;
+    const tieneTarde    = document.getElementById('chk-tarde')?.checked ?? true;
+    const gruposPreferencia = [...document.querySelectorAll('.chk-grupo-pref:checked')].map(el => el.value);
+
+    const actualizado = { ...prof, diasLaborales, tieneManana, tieneTarde, gruposPreferencia };
+    Profesionales.actualizar(profId, actualizado);
+    mostrarToast('Perfil guardado', 'success');
+  });
+}
+
 // ─── Inicialización ───────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -5265,6 +5585,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   //    allowlist), requireAuth() ya redirigió a login.html.
   const usuario = await requireAuth();
   if (!usuario) return;
+
+  // Pantalla de aprobación pendiente: mostrar aviso y frenar carga
+  if (usuario.rol === 'pendiente') {
+    document.body.innerHTML = `
+      <div class="pendiente-wrap">
+        <div class="pendiente-card">
+          <div style="font-size:48px;margin-bottom:16px">⏳</div>
+          <h2>Acceso pendiente</h2>
+          <p>Tu cuenta (<strong>${esc(usuario.email)}</strong>) fue registrada pero todavía no tiene acceso.
+          Un administrador debe aprobarla antes de que puedas ingresar.</p>
+          <button class="btn btn-secondary" onclick="cerrarSesion()">Cerrar sesión</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Aplicar clase de rol al body (controla visibilidad de nav items via CSS)
+  document.body.classList.add('rol-' + usuario.rol);
+  // Los profesionales empiezan en "Mi agenda", no en la grilla
+  if (usuario.rol === 'profesional') vistaActiva = 'mi-agenda';
 
   // 2. Cargar datos desde Supabase antes de dibujar nada
   document.getElementById('app').classList.add('cargando-datos');
