@@ -154,6 +154,9 @@ function navegarA(vista) {
 }
 
 function renderVista() {
+  // Cuando el admin sale de disponibilidad, resetear el flag para que
+  // la próxima visita al módulo refresque avisos de profesionales.
+  if (vistaActiva !== 'disponibilidad') _dispLastRefreshFecha = null;
   const contenedor = document.getElementById('vista');
   switch (vistaActiva) {
     case 'grilla':        contenedor.innerHTML = vistaGrilla();            bindGrilla();            break;
@@ -4095,6 +4098,7 @@ function bindPlanes() {
 
 let pacSeleccionadoDisp  = null;
 let profSeleccionadoBloqDisp = null;
+let _dispLastRefreshFecha = null; // evita re-fetch infinito al re-renderizar
 
 function vistaDisponibilidad() {
   const _dw = _weekday(fechaActiva);
@@ -4485,6 +4489,15 @@ function bindDisponibilidad() {
     DiasState.setBloqueosProfesional(fechaActiva, profSeleccionadoBloqDisp, bloqueos);
     mostrarToast('Bloqueos del profesional guardados', 'success');
   });
+
+  // Refrescar dias_state desde Supabase para ver avisos de profesionales en cuasi-real-time.
+  // El flag evita un loop al re-renderizar desde el callback.
+  if (_dispLastRefreshFecha !== fechaActiva && typeof cargarDiasStateRemoto === 'function') {
+    _dispLastRefreshFecha = fechaActiva;
+    cargarDiasStateRemoto().then(() => {
+      if (vistaActiva === 'disponibilidad') renderVista();
+    });
+  }
 }
 
 function marcarDerivado(pacId) {

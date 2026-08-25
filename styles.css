@@ -221,6 +221,8 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 .admin-only, .pro-only { display: none; }
 /* Admin ve solo items admin */
 body.rol-admin .admin-only  { display: flex; }
+body.rol-admin .admin-only.sidebar-persist,
+body.rol-admin .admin-only.sidebar-actions { display: block; }
 body.rol-admin .pro-only    { display: none; }
 /* Profesional ve solo items pro */
 body.rol-profesional .pro-only   { display: flex; }

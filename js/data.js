@@ -121,6 +121,14 @@ async function _sincronizarConSupabase(campo, valor) {
 // Se llama una vez al arrancar la app (después de requireAuth()), antes del
 // primer renderVista().
 
+// Refresca sólo dias_state (liviano, para avisos de profesionales en tiempo cuasi-real).
+async function cargarDiasStateRemoto() {
+  if (typeof supabaseClient === 'undefined') return;
+  const { data, error } = await supabaseClient.from('dias_state').select('*');
+  if (error) { console.error('Error refrescando dias_state:', error); return; }
+  _cache.diasState = Object.fromEntries((data || []).map(r => [r.fecha, r.data]));
+}
+
 async function cargarDatosRemotos() {
   const [pac, prof, pln, dia, asig, hist, aud] = await Promise.all([
     supabaseClient.from('pacientes').select('*'),
