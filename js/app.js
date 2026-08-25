@@ -5575,6 +5575,70 @@ function _guardarAviso(fecha, aviso) {
   DiasState.setAvisoProfesional(fecha, profId, aviso);
 }
 
+// Upsert directo a Supabase para garantizar que el aviso llega al servidor.
+async function _guardarAvisoEnSupabase(fecha) {
+  if (typeof supabaseClient === 'undefined') return true;
+  const data = DiasState.todos()[fecha] || {};
+  const { error } = await supabaseClient.from('dias_state').upsert({ fecha, data });
+  if (error) {
+    console.error('Error guardando aviso en Supabase:', error);
+    mostrarToast('Error al guardar. Revisá tu conexión.', 'error');
+    return false;
+  }
+  return true;
+}
+
+// Abre el modal de confirmación de aviso (tipo: 'ausente' | 'horario').
+function _abrirModalAviso(fecha, tipo) {
+  const profId    = usuarioActual?.profesionalId;
+  const avisoAct  = DiasState.todos()[fecha]?.avisosProfesionales?.[profId];
+  const ingActual = (typeof avisoAct === 'object' ? avisoAct.ingreso : null) || '08:00';
+  const retActual = (typeof avisoAct === 'object' ? avisoAct.retiro  : null) || '18:00';
+  const fechaLabel = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const bodyHtml = tipo === 'ausente'
+    ? `<p>Vas a avisar que <strong>faltás el ${fechaLabel}</strong>.</p>
+       <p style="color:var(--text-muted);font-size:13px">El coordinador verá este aviso al planificar el día.</p>`
+    : `<p>Vas a avisar que <strong>el ${fechaLabel} entrás y salís a otro horario</strong>.</p>
+       <div style="display:flex;gap:16px;margin-top:14px">
+         <div style="flex:1">
+           <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Ingreso</label>
+           ${_horasSelect('modal-ing', ingActual)}
+         </div>
+         <div style="flex:1">
+           <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Retiro</label>
+           ${_horasSelect('modal-ret', retActual)}
+         </div>
+       </div>`;
+
+  abrirModal(`
+    <div class="modal-header"><h3>Modificar disponibilidad</h3></div>
+    <div class="modal-body">${bodyHtml}</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarAviso('${fecha}','${tipo}')">Confirmar</button>
+    </div>
+  `);
+}
+
+// Llamada desde onclick del modal — debe ser global.
+async function confirmarAviso(fecha, tipo) {
+  const aviso = tipo === 'ausente'
+    ? 'ausente'
+    : {
+        ingreso: document.getElementById('modal-ing')?.value || '08:00',
+        retiro:  document.getElementById('modal-ret')?.value || '18:00',
+      };
+  cerrarModal();
+  _guardarAviso(fecha, aviso);
+  const ok = await _guardarAvisoEnSupabase(fecha);
+  if (ok) {
+    const lbl = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+    mostrarToast(tipo === 'ausente' ? `Aviso guardado: faltás el ${lbl}` : `Horario guardado para el ${lbl}`, 'success');
+  }
+  renderVista();
+}
+
 function bindMiDisponibilidad() {
   document.getElementById('btn-disp-semana-ant')?.addEventListener('click', () => {
     _miDispLunes = _addDays(_miDispLunes, -7);
@@ -5585,48 +5649,53 @@ function bindMiDisponibilidad() {
     renderVista();
   });
 
-  // Botón "Voy a faltar"
+  // Botón "Voy a faltar" — con confirmación; quitar aviso es directo
   document.querySelectorAll('.chk-mi-ausente').forEach(btn => {
     btn.addEventListener('click', () => {
-      const fecha   = btn.dataset.fecha;
+      const fecha    = btn.dataset.fecha;
       const yaActivo = btn.dataset.ausente === '1';
-      _guardarAviso(fecha, yaActivo ? null : 'ausente');
-      renderVista();
+      if (yaActivo) {
+        _guardarAviso(fecha, null);
+        _guardarAvisoEnSupabase(fecha).then(() => renderVista());
+      } else {
+        _abrirModalAviso(fecha, 'ausente');
+      }
     });
   });
 
-  // Botón "Cambiar horario"
+  // Botón "Cambiar horario" — con confirmación + selects en el modal; quitar es directo
   document.querySelectorAll('.chk-mi-trabaja').forEach(btn => {
     btn.addEventListener('click', () => {
       const fecha    = btn.dataset.fecha;
       const yaActivo = btn.dataset.trabaja === '1';
       if (yaActivo) {
         _guardarAviso(fecha, null);
+        _guardarAvisoEnSupabase(fecha).then(() => renderVista());
       } else {
-        _guardarAviso(fecha, { ingreso: '08:00', retiro: '18:00' });
+        _abrirModalAviso(fecha, 'horario');
       }
-      renderVista();
     });
   });
 
-  // Selects de hora — guardan al cambiar
+  // Selects de hora — ajuste post-confirmación, guardan sin modal
   document.querySelectorAll('.select-hora').forEach(sel => {
     sel.addEventListener('change', () => {
-      const id = sel.id; // 'ing-YYYY-MM-DD' o 'ret-YYYY-MM-DD'
+      const id    = sel.id;
       const tipo  = id.startsWith('ing-') ? 'ingreso' : 'retiro';
-      const fecha = id.slice(4); // quita 'ing-' o 'ret-'
+      const fecha = id.slice(4);
       const aviso = DiasState.todos()[fecha]?.avisosProfesionales?.[usuarioActual?.profesionalId];
       const actual = typeof aviso === 'object' ? { ...aviso } : { ingreso: '08:00', retiro: '18:00' };
       actual[tipo] = sel.value;
       _guardarAviso(fecha, actual);
-      // No re-renderiza para no perder el foco; el botón "Quitar aviso" ya está visible
+      _guardarAvisoEnSupabase(fecha);
     });
   });
 
+  // Quitar aviso — directo, sin confirmación
   document.querySelectorAll('.btn-reset-disp').forEach(btn => {
     btn.addEventListener('click', () => {
       _guardarAviso(btn.dataset.fecha, null);
-      renderVista();
+      _guardarAvisoEnSupabase(btn.dataset.fecha).then(() => renderVista());
     });
   });
 }
