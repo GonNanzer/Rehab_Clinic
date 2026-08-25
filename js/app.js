@@ -4143,10 +4143,14 @@ function vistaDisponibilidad() {
 
   // Avisos que los propios profesionales registraron para este día
   const avisosProfDay = (estadoGuardado || DiasState.delDia(fechaActiva)).avisosProfesionales || {};
-  const avisosLabels = Object.entries(avisosProfDay).map(([pid, tipo]) => {
+  const avisosLabels = Object.entries(avisosProfDay).map(([pid, aviso]) => {
     const p = profs.find(x => x.id === pid);
     const nombre = p ? esc(p.apellido + ', ' + p.nombre) : pid;
-    const tipoLabel = tipo === 'ausente' ? 'ausente' : tipo === 'manana' ? 'solo mañana' : tipo === 'tarde' ? 'solo tarde' : 'día completo';
+    const tipoLabel = aviso === 'ausente'
+      ? 'ausente'
+      : (typeof aviso === 'object' && aviso.ingreso && aviso.retiro)
+      ? aviso.ingreso + ' — ' + aviso.retiro
+      : 'aviso';
     return `<strong>${nombre}</strong> (${tipoLabel})`;
   });
 
@@ -5439,6 +5443,20 @@ function _addDays(fechaISO, n) {
   return d.toISOString().split('T')[0];
 }
 
+// Genera opciones de hora cada 30 min para un <select>
+function _horasSelect(id, valorActual, desde = '07:00', hasta = '20:00') {
+  const opciones = [];
+  let [h, m] = desde.split(':').map(Number);
+  const [hf, mf] = hasta.split(':').map(Number);
+  while (h < hf || (h === hf && m <= mf)) {
+    const val = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+    opciones.push(`<option value="${val}" ${val === valorActual ? 'selected' : ''}>${val}</option>`);
+    m += 30;
+    if (m >= 60) { h++; m = 0; }
+  }
+  return `<select id="${id}" class="select-field select-hora">${opciones.join('')}</select>`;
+}
+
 function vistaMiDisponibilidad() {
   const profId = usuarioActual?.profesionalId;
   if (!profId) {
@@ -5452,108 +5470,96 @@ function vistaMiDisponibilidad() {
 
   const prof  = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
   const diasL = new Set(prof?.diasLaborales || []);
+  const hoy   = new Date().toISOString().split('T')[0];
 
-  // Armar array de los 7 días de la semana visible
   const dias = Array.from({ length: 7 }, (_, i) => {
     const fecha = _addDays(_miDispLunes, i);
     const dw    = _weekday(fecha);
-    const estadoGuardado = DiasState.todos()[fecha];
-    const avisos = estadoGuardado?.avisosProfesionales || {};
-    const hayAviso = profId in avisos;
+    const avisos = DiasState.todos()[fecha]?.avisosProfesionales || {};
+    const hayAviso  = profId in avisos;
+    const aviso     = avisos[profId]; // { ingreso, retiro } | 'ausente' | undefined
+    const esHabitual = !hayAviso && diasL.has(dw);
+    const esNoLaboral = !hayAviso && !diasL.has(dw);
+    const ausente    = aviso === 'ausente';
+    const trabaja    = hayAviso && !ausente;
 
-    let estado; // 'dia' | 'manana' | 'tarde' | 'ausente' | 'habitual'
-    if (hayAviso) {
-      estado = avisos[profId]; // lo que avisó el profesional
-    } else {
-      estado = diasL.has(dw) ? 'habitual' : 'no-laboral';
-    }
-
-    return { fecha, dw, estado, hayAviso };
+    return { fecha, dw, hayAviso, aviso, esHabitual, esNoLaboral, ausente, trabaja };
   });
 
-  const nombresDia = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-  const hoy = new Date().toISOString().split('T')[0];
+  const cards = dias.map(({ fecha, dw, hayAviso, aviso, esHabitual, esNoLaboral, ausente, trabaja }) => {
+    const esHoy      = fecha === hoy;
+    const labelFecha = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const ingreso    = typeof aviso === 'object' ? aviso.ingreso : '08:00';
+    const retiro     = typeof aviso === 'object' ? aviso.retiro  : '18:00';
 
-  const filas = dias.map(({ fecha, dw, estado, hayAviso }) => {
-    const esHoy       = fecha === hoy;
-    const ausente     = estado === 'ausente' || estado === 'no-laboral';
-    const presente    = !ausente;
-    const turno       = (presente && estado !== 'habitual') ? estado : 'dia';
-    const esNoLaboral = estado === 'no-laboral';
+    const badges = [
+      esHoy      ? '<span class="badge badge-info-light">Hoy</span>' : '',
+      hayAviso   ? '<span class="badge badge-warning-light">Avisado</span>' : '',
+      esNoLaboral && !hayAviso ? '<span class="badge" style="background:var(--bg);color:var(--text-muted);font-size:10px">No laboral</span>' : '',
+    ].filter(Boolean).join(' ');
 
-    const labelFecha = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
+    const horarioBlock = trabaja ? `
+      <div class="mi-disp-horario">
+        <div class="mi-disp-hora-group">
+          <label class="mi-disp-hora-lbl">Ingreso</label>
+          ${_horasSelect('ing-' + fecha, ingreso)}
+        </div>
+        <span class="mi-disp-hora-sep">—</span>
+        <div class="mi-disp-hora-group">
+          <label class="mi-disp-hora-lbl">Retiro</label>
+          ${_horasSelect('ret-' + fecha, retiro)}
+        </div>
+      </div>` : '';
 
-    const badgeHoy = esHoy ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;font-size:10px">Hoy</span>' : '';
-    const badgeAviso = hayAviso ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:10px">Avisado</span>' : '';
-    const styleRow = esNoLaboral && !hayAviso ? 'opacity:.5' : '';
+    const atenuado = esNoLaboral && !hayAviso ? 'mi-disp-card--atenuado' : '';
+    const marcado  = ausente ? 'mi-disp-card--ausente' : trabaja ? 'mi-disp-card--activo' : '';
 
-    return `<tr class="mi-disp-fila" data-fecha="${fecha}" style="${styleRow}">
-      <td style="font-weight:${esHoy?700:400};min-width:160px">
-        <span style="text-transform:capitalize">${esc(labelFecha)}</span>
-        ${badgeHoy} ${badgeAviso}
-      </td>
-      <td>
-        <label class="check-label" style="gap:8px">
-          <input type="checkbox" class="chk-mi-presente" data-fecha="${fecha}" ${presente ? 'checked' : ''}>
-          ${presente ? 'Trabajo ese día' : '<span class="text-muted">No trabajo ese día</span>'}
-        </label>
-      </td>
-      <td class="mi-disp-turno-cell" ${ausente ? 'style="opacity:.35;pointer-events:none"' : ''}>
-        <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
-          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="manana" data-fecha="${fecha}" ${turno==='manana'?'checked':''}>
-          Mañana
-        </label>
-        <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
-          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="tarde"  data-fecha="${fecha}" ${turno==='tarde'?'checked':''}>
-          Tarde
-        </label>
-        <label style="display:inline-flex;align-items:center;gap:6px">
-          <input type="radio" name="turno-${fecha}" class="radio-mi-turno" value="dia"    data-fecha="${fecha}" ${turno==='dia'?'checked':''}>
-          Día completo
-        </label>
-      </td>
-      <td>
+    return `<div class="mi-disp-card ${atenuado} ${marcado}" data-fecha="${fecha}">
+      <div class="mi-disp-card-header">
+        <div>
+          <span class="mi-disp-dia-nombre">${esc(labelFecha)}</span>
+          <div class="mi-disp-badges">${badges}</div>
+        </div>
         ${hayAviso
-          ? `<button class="btn btn-sm btn-secondary btn-reset-disp" data-fecha="${fecha}" style="font-size:11px">↺ Quitar aviso</button>`
+          ? `<button class="btn btn-sm btn-secondary btn-reset-disp" data-fecha="${fecha}">↺ Quitar aviso</button>`
           : ''}
-      </td>
-    </tr>`;
+      </div>
+
+      <div class="mi-disp-toggle-row">
+        <button class="mi-disp-toggle-btn ${ausente ? 'active-ausente' : ''} chk-mi-ausente"
+                data-fecha="${fecha}" data-ausente="${ausente ? '1' : '0'}">
+          Voy a faltar
+        </button>
+        <button class="mi-disp-toggle-btn ${trabaja ? 'active-trabaja' : ''} chk-mi-trabaja"
+                data-fecha="${fecha}" data-trabaja="${trabaja ? '1' : '0'}">
+          Cambiar horario
+        </button>
+      </div>
+
+      ${horarioBlock}
+    </div>`;
   }).join('');
 
   const lunesLabel = new Date(_miDispLunes + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
   const domLabel   = new Date(_addDays(_miDispLunes, 6) + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
 
   return `
-  <div class="vista-header">
-    <div class="vista-header-left">
-      <h2>Mi disponibilidad</h2>
-    </div>
+  <div class="pro-vista-header">
+    <h2>Mi disponibilidad</h2>
   </div>
-  <div class="card">
-    <div class="card-head" style="justify-content:space-between">
-      <button class="btn btn-sm btn-secondary" id="btn-disp-semana-ant">← Semana anterior</button>
-      <span style="font-size:14px;font-weight:600">${lunesLabel} — ${domLabel}</span>
-      <button class="btn btn-sm btn-secondary" id="btn-disp-semana-sig">Semana siguiente →</button>
-    </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse">
-        <tbody>${filas}</tbody>
-      </table>
-    </div>
-  </div>`;
+  <div class="mi-disp-nav">
+    <button class="btn btn-secondary" id="btn-disp-semana-ant">←</button>
+    <span class="mi-disp-nav-label">${lunesLabel} — ${domLabel}</span>
+    <button class="btn btn-secondary" id="btn-disp-semana-sig">→</button>
+  </div>
+  <div class="mi-disp-lista">${cards}</div>`;
 }
 
-function _guardarPresenciaProp(fecha, val) {
-  // val: 'dia'|'manana'|'tarde'|'ausente'  — null limpia el aviso
+function _guardarAviso(fecha, aviso) {
+  // aviso: { ingreso, retiro } | 'ausente' | null (borra)
   const profId = usuarioActual?.profesionalId;
   if (!profId) return;
-  DiasState.setAvisoProfesional(fecha, profId, val); // registra el aviso del profesional
-}
-
-function _resetPresenciaProp(fecha) {
-  const profId = usuarioActual?.profesionalId;
-  if (!profId) return;
-  DiasState.setAvisoProfesional(fecha, profId, null); // borra el aviso
+  DiasState.setAvisoProfesional(fecha, profId, aviso);
 }
 
 function bindMiDisponibilidad() {
@@ -5566,23 +5572,47 @@ function bindMiDisponibilidad() {
     renderVista();
   });
 
-  document.querySelectorAll('.chk-mi-presente').forEach(chk => {
-    chk.addEventListener('change', () => {
-      const fecha = chk.dataset.fecha;
-      _guardarPresenciaProp(fecha, chk.checked ? 'dia' : 'ausente');
+  // Botón "Voy a faltar"
+  document.querySelectorAll('.chk-mi-ausente').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fecha   = btn.dataset.fecha;
+      const yaActivo = btn.dataset.ausente === '1';
+      _guardarAviso(fecha, yaActivo ? null : 'ausente');
       renderVista();
     });
   });
 
-  document.querySelectorAll('.radio-mi-turno').forEach(radio => {
-    radio.addEventListener('change', () => {
-      if (radio.checked) _guardarPresenciaProp(radio.dataset.fecha, radio.value);
+  // Botón "Cambiar horario"
+  document.querySelectorAll('.chk-mi-trabaja').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fecha    = btn.dataset.fecha;
+      const yaActivo = btn.dataset.trabaja === '1';
+      if (yaActivo) {
+        _guardarAviso(fecha, null);
+      } else {
+        _guardarAviso(fecha, { ingreso: '08:00', retiro: '18:00' });
+      }
+      renderVista();
+    });
+  });
+
+  // Selects de hora — guardan al cambiar
+  document.querySelectorAll('.select-hora').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const id = sel.id; // 'ing-YYYY-MM-DD' o 'ret-YYYY-MM-DD'
+      const tipo  = id.startsWith('ing-') ? 'ingreso' : 'retiro';
+      const fecha = id.slice(4); // quita 'ing-' o 'ret-'
+      const aviso = DiasState.todos()[fecha]?.avisosProfesionales?.[usuarioActual?.profesionalId];
+      const actual = typeof aviso === 'object' ? { ...aviso } : { ingreso: '08:00', retiro: '18:00' };
+      actual[tipo] = sel.value;
+      _guardarAviso(fecha, actual);
+      // No re-renderiza para no perder el foco; el botón "Quitar aviso" ya está visible
     });
   });
 
   document.querySelectorAll('.btn-reset-disp').forEach(btn => {
     btn.addEventListener('click', () => {
-      _resetPresenciaProp(btn.dataset.fecha);
+      _guardarAviso(btn.dataset.fecha, null);
       renderVista();
     });
   });

@@ -249,10 +249,68 @@ body.rol-profesional .admin-only { display: none; }
 .rol-badge-profesional{ background: #d1fae5; color: #065f46; }
 .rol-badge-pendiente  { background: #fef3c7; color: #92400e; }
 
-/* ── Vista: Mi disponibilidad (profesional) ──────────────────────────────────── */
-.mi-disp-fila td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; font-size: 13px; }
-.mi-disp-fila:last-child td { border-bottom: none; }
-.mi-disp-fila:hover td { background: var(--bg); }
+/* ── UX profesional: header y contenedor general ─────────────────────────────── */
+.pro-vista-header {
+  padding: 20px 0 8px;
+}
+.pro-vista-header h2 { margin: 0; }
+
+/* ── Vista: Mi disponibilidad ────────────────────────────────────────────────── */
+.mi-disp-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 16px;
+}
+.mi-disp-nav .btn { min-width: 44px; font-size: 18px; padding: 8px 14px; }
+.mi-disp-nav-label { font-size: 14px; font-weight: 600; text-align: center; flex: 1; }
+
+.mi-disp-lista { display: flex; flex-direction: column; gap: 10px; }
+
+.mi-disp-card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  transition: border-color .15s;
+}
+.mi-disp-card--atenuado { opacity: .55; }
+.mi-disp-card--ausente  { border-color: #fca5a5; background: #fff5f5; }
+.mi-disp-card--activo   { border-color: #86efac; background: #f0fdf4; }
+
+.mi-disp-card-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px;
+}
+.mi-disp-dia-nombre {
+  font-size: 15px; font-weight: 600; text-transform: capitalize; display: block;
+}
+.mi-disp-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+
+.badge-info-light    { background: #dbeafe; color: #1d4ed8; }
+.badge-warning-light { background: #fef3c7; color: #92400e; }
+
+.mi-disp-toggle-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.mi-disp-toggle-btn {
+  flex: 1; min-width: 120px;
+  padding: 10px 14px; font-size: 14px; font-weight: 500;
+  border: 1.5px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+  text-align: center;
+}
+.mi-disp-toggle-btn:hover { background: var(--card-bg); border-color: var(--text-muted); }
+.mi-disp-toggle-btn.active-ausente {
+  background: #fef2f2; border-color: #fca5a5; color: #b91c1c; font-weight: 700;
+}
+.mi-disp-toggle-btn.active-trabaja {
+  background: #f0fdf4; border-color: #86efac; color: #15803d; font-weight: 700;
+}
+
+.mi-disp-horario {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap;
+}
+.mi-disp-hora-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 100px; }
+.mi-disp-hora-lbl   { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.mi-disp-hora-sep   { font-weight: 700; color: var(--text-muted); padding-top: 18px; }
+.select-hora        { font-size: 15px; padding: 8px 10px; width: 100%; }
 
 /* ── Vista: Mi agenda (profesional) ──────────────────────────────────────────── */
 .mi-agenda-lista { display: flex; flex-direction: column; gap: 8px; }
@@ -2543,6 +2601,20 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   .metricas-columnas { grid-template-columns: 1fr; }
   .form-row-2 { grid-template-columns: 1fr; }
   .planes-layout { grid-template-columns: 1fr; }
+
+  /* ── UX profesional mobile ─────────────────────────────────────────── */
+  .mi-agenda-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .mi-agenda-stat  { min-width: unset; padding: 12px; }
+  .mi-agenda-stat strong { font-size: 22px; }
+  .mi-agenda-sesion { padding: 12px 14px; gap: 10px; }
+  .pro-vista-header h2 { font-size: 20px; }
+  .mi-disp-nav .btn { padding: 10px 18px; font-size: 20px; }
+  .mi-disp-nav-label { font-size: 13px; }
+  .mi-disp-toggle-row { flex-direction: column; }
+  .mi-disp-toggle-btn { min-width: unset; flex-basis: 100%; padding: 13px; font-size: 15px; }
+  .select-hora { font-size: 16px; } /* evita zoom automático en iOS */
+  body.rol-profesional input[type="checkbox"],
+  body.rol-profesional input[type="radio"] { width: 18px; height: 18px; }
 
   /* Formularios más angostos: menos padding para ganar ancho útil */
   .modal-body { padding: 14px; }
