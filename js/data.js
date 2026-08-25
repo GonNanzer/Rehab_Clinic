@@ -377,6 +377,17 @@ const DiasState = {
     return this.guardar(fecha, estado);
   },
 
+  setAvisoProfesional(fecha, profId, aviso) {
+    const estado = this.delDia(fecha);
+    if (!estado.avisosProfesionales) estado.avisosProfesionales = {};
+    if (aviso === null) {
+      delete estado.avisosProfesionales[profId];
+    } else {
+      estado.avisosProfesionales[profId] = aviso; // 'ausente'|'manana'|'tarde'|'dia'
+    }
+    return this.guardar(fecha, estado);
+  },
+
   setDerivado(fecha, pacienteId, derivado) {
     const estado = this.delDia(fecha);
     const lista = new Set(estado.pacientesDerivados || []);

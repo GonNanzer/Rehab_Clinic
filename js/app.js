@@ -4141,6 +4141,15 @@ function vistaDisponibilidad() {
     return p ? esc(p.apellido) + ', ' + esc(p.nombre) : id;
   });
 
+  // Avisos que los propios profesionales registraron para este día
+  const avisosProfDay = (estadoGuardado || DiasState.delDia(fechaActiva)).avisosProfesionales || {};
+  const avisosLabels = Object.entries(avisosProfDay).map(([pid, tipo]) => {
+    const p = profs.find(x => x.id === pid);
+    const nombre = p ? esc(p.apellido + ', ' + p.nombre) : pid;
+    const tipoLabel = tipo === 'ausente' ? 'ausente' : tipo === 'manana' ? 'solo mañana' : tipo === 'tarde' ? 'solo tarde' : 'día completo';
+    return `<strong>${nombre}</strong> (${tipoLabel})`;
+  });
+
   let html = `<div class="vista-header">
     <div class="vista-header-left">
       <h2>Disponibilidad</h2>
@@ -4151,6 +4160,11 @@ function vistaDisponibilidad() {
   ${derivados.length > 0 ? `<div class="disp-derivados-banner">
     🏥 Pacientes derivados hoy — no se les asignarán sesiones:
     <strong>${derivadosLabels.join(' · ')}</strong>
+  </div>` : ''}
+
+  ${avisosLabels.length > 0 ? `<div class="disp-avisos-prof-banner">
+    📣 Avisos de profesionales para este día:
+    ${avisosLabels.join(' · ')}
   </div>` : ''}
 
   <div class="disp-grid">
@@ -5444,39 +5458,39 @@ function vistaMiDisponibilidad() {
     const fecha = _addDays(_miDispLunes, i);
     const dw    = _weekday(fecha);
     const estadoGuardado = DiasState.todos()[fecha];
-    const hayConfig = estadoGuardado && 'presenciaProfesionales' in estadoGuardado;
-    const presMap   = hayConfig ? (estadoGuardado.presenciaProfesionales || {}) : null;
+    const avisos = estadoGuardado?.avisosProfesionales || {};
+    const hayAviso = profId in avisos;
 
-    let estado; // 'dia' | 'manana' | 'tarde' | null (ausente) | 'habitual'
-    if (presMap !== null) {
-      estado = presMap[profId] ?? null; // null = ausencia explícita
+    let estado; // 'dia' | 'manana' | 'tarde' | 'ausente' | 'habitual'
+    if (hayAviso) {
+      estado = avisos[profId]; // lo que avisó el profesional
     } else {
-      estado = diasL.has(dw) ? 'habitual' : null;
+      estado = diasL.has(dw) ? 'habitual' : 'no-laboral';
     }
 
-    return { fecha, dw, estado, hayConfig };
+    return { fecha, dw, estado, hayAviso };
   });
 
   const nombresDia = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
   const hoy = new Date().toISOString().split('T')[0];
 
-  const filas = dias.map(({ fecha, dw, estado, hayConfig }) => {
-    const esHoy    = fecha === hoy;
-    const ausente  = estado === null;
-    const presente = !ausente;
-    const turno    = (!ausente && estado !== 'habitual') ? estado : 'dia';
-    const esHabitual = estado === 'habitual';
+  const filas = dias.map(({ fecha, dw, estado, hayAviso }) => {
+    const esHoy       = fecha === hoy;
+    const ausente     = estado === 'ausente' || estado === 'no-laboral';
+    const presente    = !ausente;
+    const turno       = (presente && estado !== 'habitual') ? estado : 'dia';
+    const esNoLaboral = estado === 'no-laboral';
 
     const labelFecha = new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
 
     const badgeHoy = esHoy ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;font-size:10px">Hoy</span>' : '';
-    const badgeMod = hayConfig && estado !== 'habitual' && !esHabitual
-      ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:10px">Modificado</span>' : '';
+    const badgeAviso = hayAviso ? '<span class="badge" style="background:#fef3c7;color:#92400e;font-size:10px">Avisado</span>' : '';
+    const styleRow = esNoLaboral && !hayAviso ? 'opacity:.5' : '';
 
-    return `<tr class="mi-disp-fila" data-fecha="${fecha}">
-      <td style="font-weight:${esHoy?700:400};min-width:140px">
+    return `<tr class="mi-disp-fila" data-fecha="${fecha}" style="${styleRow}">
+      <td style="font-weight:${esHoy?700:400};min-width:160px">
         <span style="text-transform:capitalize">${esc(labelFecha)}</span>
-        ${badgeHoy} ${badgeMod}
+        ${badgeHoy} ${badgeAviso}
       </td>
       <td>
         <label class="check-label" style="gap:8px">
@@ -5499,8 +5513,8 @@ function vistaMiDisponibilidad() {
         </label>
       </td>
       <td>
-        ${hayConfig && !esHabitual
-          ? `<button class="btn btn-sm btn-secondary btn-reset-disp" data-fecha="${fecha}" style="font-size:11px">↺ Restablecer</button>`
+        ${hayAviso
+          ? `<button class="btn btn-sm btn-secondary btn-reset-disp" data-fecha="${fecha}" style="font-size:11px">↺ Quitar aviso</button>`
           : ''}
       </td>
     </tr>`;
@@ -5530,25 +5544,16 @@ function vistaMiDisponibilidad() {
 }
 
 function _guardarPresenciaProp(fecha, val) {
+  // val: 'dia'|'manana'|'tarde'|'ausente'  — null limpia el aviso
   const profId = usuarioActual?.profesionalId;
   if (!profId) return;
-  const pres = { ...(DiasState.delDia(fecha).presenciaProfesionales || {}) };
-  if (!val) {
-    delete pres[profId];
-  } else {
-    pres[profId] = val;
-  }
-  DiasState.setProfesionalesPresencia(fecha, pres);
+  DiasState.setAvisoProfesional(fecha, profId, val); // registra el aviso del profesional
 }
 
 function _resetPresenciaProp(fecha) {
   const profId = usuarioActual?.profesionalId;
   if (!profId) return;
-  const estadoGuardado = DiasState.todos()[fecha];
-  if (!estadoGuardado || !('presenciaProfesionales' in estadoGuardado)) return;
-  const pres = { ...(estadoGuardado.presenciaProfesionales || {}) };
-  delete pres[profId];
-  DiasState.setProfesionalesPresencia(fecha, pres);
+  DiasState.setAvisoProfesional(fecha, profId, null); // borra el aviso
 }
 
 function bindMiDisponibilidad() {
@@ -5564,17 +5569,7 @@ function bindMiDisponibilidad() {
   document.querySelectorAll('.chk-mi-presente').forEach(chk => {
     chk.addEventListener('change', () => {
       const fecha = chk.dataset.fecha;
-      if (chk.checked) {
-        _guardarPresenciaProp(fecha, 'dia');
-      } else {
-        // Ausencia explícita: necesitamos que presenciaProfesionales exista y no tenga al prof
-        const estadoGuardado = DiasState.todos()[fecha];
-        const pres = { ...(estadoGuardado?.presenciaProfesionales || {}) };
-        const profId = usuarioActual?.profesionalId;
-        delete pres[profId];
-        // Forzar que la clave exista (para distinguir de "nunca configurado")
-        DiasState.setProfesionalesPresencia(fecha, pres);
-      }
+      _guardarPresenciaProp(fecha, chk.checked ? 'dia' : 'ausente');
       renderVista();
     });
   });

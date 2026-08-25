@@ -1280,6 +1280,16 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   font-weight: 500;
 }
 
+.disp-avisos-prof-banner {
+  padding: 10px 16px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #78350f;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
 .disp-derivados-banner {
   padding: 10px 16px;
   background: #fef2f2;
