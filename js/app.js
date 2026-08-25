@@ -5281,7 +5281,7 @@ function _cerrarRellenoInteractivo() {
 
 // ─── Toast de notificaciones ──────────────────────────────────────────────────
 
-function mostrarToast(mensaje, tipo = 'info') {
+function mostrarToast(mensaje, tipo = 'info', duracion = 3000) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${tipo}`;
   toast.textContent = mensaje;
@@ -5290,7 +5290,36 @@ function mostrarToast(mensaje, tipo = 'info') {
   setTimeout(() => {
     toast.classList.remove('toast-visible');
     setTimeout(() => toast.remove(), 400);
-  }, 3000);
+  }, duracion);
+}
+
+// Detecta avisos nuevos/modificados/removidos de profesionales y notifica al admin.
+function _notificarNuevosAvisos(diasAntes, diasDespues) {
+  if (usuarioActual?.rol !== 'admin') return;
+  const profs = Profesionales.activos();
+
+  const _labelFecha = f => new Date(f + 'T12:00:00').toLocaleDateString('es-AR',
+    { weekday: 'long', day: 'numeric', month: 'long' });
+  const _nombre = id => { const p = profs.find(x => x.id === id); return p ? p.apellido + ', ' + p.nombre : id; };
+
+  // Nuevos o modificados
+  Object.entries(diasDespues).forEach(([fecha, estadoDespues]) => {
+    const avisosAntes   = diasAntes[fecha]?.avisosProfesionales  || {};
+    const avisosDespues = estadoDespues?.avisosProfesionales || {};
+    Object.entries(avisosDespues).forEach(([profId, aviso]) => {
+      if (JSON.stringify(avisosAntes[profId]) === JSON.stringify(aviso)) return;
+      const msg = aviso === 'ausente'
+        ? `${_nombre(profId)} avisó que falta el ${_labelFecha(fecha)}`
+        : `${_nombre(profId)} modificó su horario del ${_labelFecha(fecha)} (${aviso.ingreso} — ${aviso.retiro})`;
+      mostrarToast(msg, 'warning', 7000);
+    });
+    // Removidos
+    Object.keys(diasAntes[fecha]?.avisosProfesionales || {}).forEach(profId => {
+      if (!(profId in avisosDespues)) {
+        mostrarToast(`${_nombre(profId)} quitó su aviso del ${_labelFecha(fecha)}`, 'info', 5000);
+      }
+    });
+  });
 }
 
 // ─── Vista: Usuarios (admin) ──────────────────────────────────────────────────
@@ -5905,7 +5934,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('app').classList.remove('cargando-datos');
 
   // 3. Suscribirse a cambios remotos (otros usuarios) y re-renderizar
-  suscribirCambiosRemotos(() => renderVista());
+  suscribirCambiosRemotos((diasAntes, diasDespues) => {
+    _notificarNuevosAvisos(diasAntes, diasDespues);
+    renderVista();
+  });
 
   // 4. Presencia: avisar quién más está conectado ahora mismo
   if (typeof iniciarPresencia === 'function') iniciarPresencia(usuario);

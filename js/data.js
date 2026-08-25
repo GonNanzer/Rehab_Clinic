@@ -169,8 +169,10 @@ function suscribirCambiosRemotos(onCambioRemoto) {
       // Debounce: un guardado nuestro puede tocar varias tablas casi a la vez.
       clearTimeout(timer);
       timer = setTimeout(async () => {
+        // Snapshot de avisos ANTES de recargar (para detectar cambios de profesionales)
+        const snapAntes = JSON.parse(JSON.stringify(_cache.diasState || {}));
         await cargarDatosRemotos();
-        if (typeof onCambioRemoto === 'function') onCambioRemoto();
+        if (typeof onCambioRemoto === 'function') onCambioRemoto(snapAntes, _cache.diasState || {});
       }, 400);
     });
   });
