@@ -5582,7 +5582,7 @@ async function _guardarAvisoEnSupabase(fecha) {
   const { error } = await supabaseClient.from('dias_state').upsert({ fecha, data });
   if (error) {
     console.error('Error guardando aviso en Supabase:', error);
-    mostrarToast('Error al guardar. Revisá tu conexión.', 'error');
+    mostrarToast('Error al guardar: ' + (error.message || error.code || 'desconocido'), 'error');
     return false;
   }
   return true;
