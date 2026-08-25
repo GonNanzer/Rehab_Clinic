@@ -4131,12 +4131,23 @@ function vistaDisponibilidad() {
   const diaLabel = DIAS_SEMANA[dw];
   const tieneHorarios = profs.some(p => (p.diasLaborales||[]).length > 0);
 
+  const derivados = (estadoGuardado || DiasState.delDia(fechaActiva)).pacientesDerivados || [];
+  const derivadosLabels = derivados.map(id => {
+    const p = Pacientes.porId(id);
+    return p ? esc(p.apellido) + ', ' + esc(p.nombre) : id;
+  });
+
   let html = `<div class="vista-header">
     <div class="vista-header-left">
       <h2>Disponibilidad</h2>
       <input type="date" id="disp-fecha" value="${fechaActiva}" class="date-input">
     </div>
   </div>
+
+  ${derivados.length > 0 ? `<div class="disp-derivados-banner">
+    🏥 Pacientes derivados hoy — no se les asignarán sesiones:
+    <strong>${derivadosLabels.join(' · ')}</strong>
+  </div>` : ''}
 
   <div class="disp-grid">
     <!-- Columna izquierda: profesionales presentes -->
@@ -4191,6 +4202,7 @@ function vistaDisponibilidad() {
         <div class="card">
           <div class="card-head" style="flex-wrap:wrap;gap:4px">
             <strong>Bloqueos del paciente</strong>
+            ${derivados.includes(pacSeleccionadoDisp) ? '<span class="badge badge-danger" style="font-size:11px">🏥 Derivado</span>' : ''}
             <select id="disp-pac-sel" class="select-field" style="margin-left:auto;max-width:180px">
               ${pacientes.sort((a,b)=>a.apellido.localeCompare(b.apellido)).map(p =>
                 `<option value="${p.id}" ${p.id===pacSeleccionadoDisp?'selected':''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`
@@ -4230,8 +4242,11 @@ function vistaDisponibilidad() {
               }).join('')}
             </div>
           </div>
-          <div class="card-footer">
+          <div class="card-footer" style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary btn-sm" id="btn-guardar-bloqueos">Guardar bloqueos</button>
+            <button class="btn btn-sm ${derivados.includes(pacSeleccionadoDisp) ? 'btn-secondary' : 'btn-danger'}" id="btn-derivar-pac">
+              ${derivados.includes(pacSeleccionadoDisp) ? '↩ Quitar derivación' : '🏥 Paciente derivado'}
+            </button>
           </div>
         </div>
 
@@ -4410,6 +4425,10 @@ function bindDisponibilidad() {
     abrirModalPrescripcion();
   });
 
+  document.getElementById('btn-derivar-pac')?.addEventListener('click', () => {
+    marcarDerivado(pacSeleccionadoDisp);
+  });
+
   // Bloqueos de profesional
   document.getElementById('disp-prof-bloq-sel')?.addEventListener('change', e => {
     profSeleccionadoBloqDisp = e.target.value;
@@ -4444,6 +4463,25 @@ function bindDisponibilidad() {
     DiasState.setBloqueosProfesional(fechaActiva, profSeleccionadoBloqDisp, bloqueos);
     mostrarToast('Bloqueos del profesional guardados', 'success');
   });
+}
+
+function marcarDerivado(pacId) {
+  const estado = DiasState.delDia(fechaActiva);
+  const derivados = estado.pacientesDerivados || [];
+  const estaDerivado = derivados.includes(pacId);
+  if (!estaDerivado) {
+    // Bloquear todos los slots con motivo "Derivado"
+    const bloques = SLOTS.map(s => ({ slotId: s.id, motivo: 'Derivado' }));
+    DiasState.setBloqueosPaciente(fechaActiva, pacId, bloques);
+    DiasState.setDerivado(fechaActiva, pacId, true);
+    mostrarToast('Paciente marcado como derivado — todos los slots bloqueados', 'warning');
+  } else {
+    // Limpiar bloqueos de derivación y quitar la marca
+    DiasState.setBloqueosPaciente(fechaActiva, pacId, []);
+    DiasState.setDerivado(fechaActiva, pacId, false);
+    mostrarToast('Derivación quitada', 'success');
+  }
+  renderVista();
 }
 
 function eliminarPrescripcion(idx) {

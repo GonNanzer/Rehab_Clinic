@@ -375,6 +375,18 @@ const DiasState = {
     if (!estado.bloqueosProfesionales) estado.bloqueosProfesionales = {};
     estado.bloqueosProfesionales[profId] = bloqueos;
     return this.guardar(fecha, estado);
+  },
+
+  setDerivado(fecha, pacienteId, derivado) {
+    const estado = this.delDia(fecha);
+    const lista = new Set(estado.pacientesDerivados || []);
+    if (derivado) {
+      lista.add(pacienteId);
+    } else {
+      lista.delete(pacienteId);
+    }
+    estado.pacientesDerivados = [...lista];
+    return this.guardar(fecha, estado);
   }
 };
 

@@ -1221,6 +1221,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   font-weight: 500;
 }
 
+.disp-derivados-banner {
+  padding: 10px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #b91c1c;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
 /* Fila de profesional en panel de disponibilidad */
 .disp-prof-row {
   display: flex;
