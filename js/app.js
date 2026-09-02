@@ -5447,16 +5447,12 @@ async function guardarUsuario(uid) {
   const rol    = document.getElementById('modal-usr-rol').value;
   const profId = document.getElementById('modal-usr-prof')?.value || null;
 
-  const { error, count } = await supabaseClient
+  const { error } = await supabaseClient
     .from('user_profiles')
-    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null }, { count: 'exact' })
+    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null })
     .eq('auth_user_id', uid);
 
   if (error) { mostrarToast('Error al guardar: ' + error.message, 'error'); return; }
-  if (count === 0) {
-    mostrarToast('Sin permiso para actualizar este usuario (RLS). Revisá las políticas en Supabase.', 'error', 7000);
-    return;
-  }
   cerrarModal();
   _userProfiles = null;
   mostrarToast('Usuario actualizado', 'success');
