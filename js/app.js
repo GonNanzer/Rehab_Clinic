@@ -4508,6 +4508,8 @@ function bindDisponibilidad() {
   function _saveCustomHoras(profId) {
     const ingreso = document.querySelector(`.sel-ingresa[data-id="${profId}"]`)?.value || '';
     const retiro  = document.querySelector(`.sel-retira[data-id="${profId}"]`)?.value  || '';
+    // Si uno solo está seteado, esperar al otro sin re-renderizar
+    if ((ingreso && !retiro) || (!ingreso && retiro)) return;
     _setPresencia(profId, (ingreso && retiro) ? { ingreso, retiro } : null);
   }
 
