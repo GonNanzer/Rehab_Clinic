@@ -2842,6 +2842,47 @@ function abrirCopiarDiaBano(pacId, diaOrigen) {
   `);
 }
 
+function abrirCopiarDiaGrilla(diaOrigen) {
+  const origen = _BANO_DIAS.find(d => d.dia === diaOrigen);
+  const destinos = _BANO_DIAS.filter(d => d.dia !== diaOrigen);
+  const opciones = destinos.map(d => `
+    <label class="copia-dia-opcion">
+      <input type="checkbox" class="copia-dia-chk" value="${d.dia}">
+      <span>${d.label}</span>
+    </label>`).join('');
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Copiar horarios del ${origen.label}</h3>
+      <button class="btn-icon" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--text-muted)">
+        Seleccioná los días a los que querés copiar todos los horarios de baño del ${origen.label}.
+      </p>
+      <div class="copia-dia-lista">${opciones}</div>
+    </div>
+    <div class="modal-footer">
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarCopiarDiaGrilla(${diaOrigen})">Copiar</button>
+      </div>
+    </div>
+  `);
+}
+
+function confirmarCopiarDiaGrilla(diaOrigen) {
+  const diasDestino = [...document.querySelectorAll('.copia-dia-chk:checked')].map(c => Number(c.value));
+  if (diasDestino.length === 0) { mostrarToast('Seleccioná al menos un día', 'warn'); return; }
+  const origen = JSON.parse(JSON.stringify(_banoGridState[diaOrigen] || {}));
+  diasDestino.forEach(dia => {
+    _banoGridState[dia] = JSON.parse(JSON.stringify(origen));
+    _BANO_HORAS_GRILLA.forEach(h => _banoRepintarCelda(dia, h.id));
+  });
+  cerrarModal();
+  const n = diasDestino.length;
+  mostrarToast(`Copiado a ${n} día${n > 1 ? 's' : ''} — recordá guardar`, 'info');
+}
+
 function confirmarCopiarDiaBano(pacId, diaOrigen) {
   const slotsOrigen = new Set();
   document.querySelectorAll(`.bano-chk[data-pac="${pacId}"][data-dia="${diaOrigen}"]`).forEach(chk => {
@@ -2916,7 +2957,12 @@ function _cargarBanoGridState() {
 function _banosVistaGrilla() {
   if (!_banoGridState) _banoGridState = _cargarBanoGridState();
 
-  const thDias = _BANO_DIAS.map(d => `<th>${esc(d.label)}</th>`).join('');
+  const thDias = _BANO_DIAS.map(d => `<th>
+    <div class="bano-grilla-th-dia">
+      <span>${esc(d.label)}</span>
+      <button class="btn-bano-copiar" onclick="abrirCopiarDiaGrilla(${d.dia})" title="Copiar este día a otros">Copiar →</button>
+    </div>
+  </th>`).join('');
   const filas = _BANO_HORAS_GRILLA.map(h => {
     const celdas = _BANO_DIAS.map(d =>
       `<td class="bano-grilla-celda" id="bano-cell-${d.dia}-${h.id}">${_banoRenderCell(d.dia, h.id)}</td>`

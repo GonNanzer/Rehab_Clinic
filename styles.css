@@ -2487,6 +2487,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   justify-content: space-between;
   gap: 8px;
 }
+.bano-grilla-th-dia {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
 .btn-bano-copiar {
   background: none; border: 1px solid var(--border); border-radius: 4px;
   font-size: 10px; color: var(--text-muted); cursor: pointer; padding: 1px 5px;
