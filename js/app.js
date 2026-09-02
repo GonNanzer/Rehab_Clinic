@@ -1977,36 +1977,29 @@ function abrirModalLimpiarSesiones(fecha) {
       <p style="margin-bottom:16px">Elegí qué sesiones del <strong>${formatFecha(fecha)}</strong> querés eliminar:</p>
       <div class="limpiar-opciones">
         <label class="limpiar-opcion">
-          <input type="radio" name="limpiar_modo" value="no-fijas" checked
-            onchange="document.getElementById('limpiar-aviso-fijas').hidden=true">
+          <input type="radio" name="limpiar_modo" value="no-fijas" checked>
           <div>
             <strong>Solo las no fijas</strong>
             <div class="text-muted">${noFijasCount} sesión${noFijasCount !== 1 ? 'es' : ''} sin fijar</div>
           </div>
         </label>
         <label class="limpiar-opcion">
-          <input type="radio" name="limpiar_modo" value="todas"
-            onchange="document.getElementById('limpiar-aviso-fijas').hidden=false">
+          <input type="radio" name="limpiar_modo" value="todas">
           <div>
             <strong>Todas las sesiones</strong>
             <div class="text-muted">${sesiones.length} sesión${sesiones.length !== 1 ? 'es' : ''} en total</div>
           </div>
         </label>
         <label class="limpiar-opcion">
-          <input type="radio" name="limpiar_modo" value="prof"
-            onchange="document.getElementById('limpiar-aviso-fijas').hidden=false">
+          <input type="radio" name="limpiar_modo" value="prof">
           <div>
             <strong>Solo de un profesional</strong>
             <select id="limpiar-prof-sel" class="select-field" style="margin-top:6px;width:100%"
-              onclick="document.querySelector('input[name=limpiar_modo][value=prof]').checked=true;document.getElementById('limpiar-aviso-fijas').hidden=false">
+              onclick="document.querySelector('input[name=limpiar_modo][value=prof]').checked=true">
               ${profsOpts}
             </select>
           </div>
         </label>
-      </div>
-      <div class="aviso-restricciones" id="limpiar-aviso-fijas" style="margin-top:16px" hidden>
-        <div class="aviso-icono">⚠</div>
-        <div>Las sesiones marcadas como <strong>fijas 🔒</strong> también serán eliminadas.</div>
       </div>
     </div>
     <div class="modal-footer">
