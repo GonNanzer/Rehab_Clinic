@@ -4478,10 +4478,19 @@ function bindDisponibilidad() {
 
   // Presencia de profesionales — Horario habitual / horas custom (auto-save)
   function _setPresencia(profId, val) {
-    const pres = { ...(DiasState.delDia(fechaActiva).presenciaProfesionales || {}) };
+    const estado = DiasState.delDia(fechaActiva);
+    let pres;
+    if ('presenciaProfesionales' in (estado || {})) {
+      pres = { ...(estado.presenciaProfesionales || {}) };
+    } else {
+      // Primera interacción del día: inicializar desde horario habitual para no
+      // perder el estado visual de los demás profesionales al guardar solo uno.
+      pres = {};
+      _profsDelHorario(Profesionales.activos(), fechaActiva).forEach(id => { pres[id] = 'habitual'; });
+    }
     if (!val) {
       delete pres[profId];
-      const excl = (DiasState.delDia(fechaActiva).profesionalesExcluidos || []).filter(id => id !== profId);
+      const excl = (estado.profesionalesExcluidos || []).filter(id => id !== profId);
       DiasState.setProfesionalesExcluidos(fechaActiva, excl);
     } else {
       pres[profId] = val;
