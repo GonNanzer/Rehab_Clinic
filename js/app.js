@@ -220,7 +220,6 @@ function vistaGrilla() {
   });
   const _libresBySlot = {};
   SLOTS.forEach(slot => {
-    if (slot.esAlmuerzo) { _libresBySlot[slot.id] = []; return; }
     _libresBySlot[slot.id] = _profsPresentes.filter(p => {
       if (_busyBySlot[slot.id].has(p.id)) return false;
       const horarios = (p.horariosPorDia || {})[_diaNum];
