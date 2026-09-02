@@ -101,6 +101,7 @@ const SLOTS = [
   { id: 'slot_10', inicio: '10:00', fin: '11:00', label: '10:00 – 11:00', turno: 'manana', esAlmuerzo: false },
   { id: 'slot_11', inicio: '11:00', fin: '12:00', label: '11:00 – 12:00', turno: 'manana', esAlmuerzo: false },
   { id: 'slot_12', inicio: '12:00', fin: '13:00', label: '12:00 – 13:00', turno: 'almuerzo', esAlmuerzo: true },
+  { id: 'slot_13', inicio: '13:00', fin: '14:00', label: '13:00 – 14:00', turno: 'almuerzo', esAlmuerzo: false, soloManual: true },
   { id: 'slot_14', inicio: '14:00', fin: '15:00', label: '14:00 – 15:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_15', inicio: '15:00', fin: '16:00', label: '15:00 – 16:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_16', inicio: '16:00', fin: '17:00', label: '16:00 – 17:00', turno: 'tarde', esAlmuerzo: false },

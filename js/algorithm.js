@@ -365,6 +365,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   } else {
     candidatos = SLOTS.filter(s => {
       if (patientSlots[paciente.id][s.id]) return false;     // ocupado o bloqueado
+      if (s.soloManual) return false;                        // reservado para sesiones manuales
       if (s.esAlmuerzo && paciente.requiereAlmuerzoTerapeutico) return false; // reservado para almuerzo
       if (esAlmuerzo) return s.esAlmuerzo;
       const idx = SLOTS.findIndex(sl => sl.id === s.id);
@@ -1575,6 +1576,7 @@ function detectarHuecosRellenables(fecha) {
 
     SLOTS.forEach(slot => {
       if (slot.esAlmuerzo) return;
+      if (slot.soloManual) return;
       if (patientSlots[pac.id]?.[slot.id]) return;
       const hayCandidato = discsPlan.some(disc =>
         profsDisponibles.some(p =>
@@ -1618,6 +1620,7 @@ function rellenarEspaciosVaciosAuto(fecha) {
 
     SLOTS.forEach(slot => {
       if (slot.esAlmuerzo) return;
+      if (slot.soloManual) return;
 
       const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesiones, profsDisponibles, todosPacientes);
       if (patientSlots[pac.id]?.[slot.id]) return;
