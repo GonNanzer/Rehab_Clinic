@@ -135,7 +135,14 @@ function _idsProfsPresentes(estado, fecha) {
   return [];
 }
 
+const _VISTAS_ADMIN = new Set(['grilla','lista-prof','disponibilidad','pacientes','banos','egresados',
+  'profesionales','practicantes','planes','metricas','historial','auditoria','sesionRapida','usuarios']);
+const _VISTAS_PRO   = new Set(['mi-agenda','mi-disponibilidad','mi-perfil']);
+
 function navegarA(vista) {
+  const rol = usuarioActual?.rol;
+  if (_VISTAS_ADMIN.has(vista) && rol !== 'admin') return;
+  if (_VISTAS_PRO.has(vista)   && rol !== 'profesional') return;
   if (modoRotacion) cancelarModoRotacion();
   if (modoSwap) cancelarModoSwap();
   // Al entrar de nuevo a Horarios de Baño (desde otra vista) recargamos la
@@ -158,6 +165,9 @@ function renderVista() {
   // la próxima visita al módulo refresque avisos de profesionales.
   if (vistaActiva !== 'disponibilidad') _dispLastRefreshFecha = null;
   const contenedor = document.getElementById('vista');
+  const _rol = usuarioActual?.rol;
+  if (_VISTAS_ADMIN.has(vistaActiva) && _rol !== 'admin') { contenedor.innerHTML = ''; return; }
+  if (_VISTAS_PRO.has(vistaActiva)   && _rol !== 'profesional') { contenedor.innerHTML = ''; return; }
   switch (vistaActiva) {
     case 'grilla':        contenedor.innerHTML = vistaGrilla();            bindGrilla();            break;
     case 'pacientes':     contenedor.innerHTML = vistaPacientes();         bindPacientes();         break;
