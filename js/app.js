@@ -1967,6 +1967,7 @@ function abrirModalLimpiarSesiones(fecha) {
     return `<option value="${id}">${esc(p ? `${p.apellido}, ${p.nombre}` : id)}</option>`;
   }).join('');
 
+  const noFijasCount = sesiones.filter(s => !s.fijo).length;
   abrirModal(`
     <div class="modal-header">
       <h3>Eliminar sesiones del día</h3>
@@ -1976,24 +1977,34 @@ function abrirModalLimpiarSesiones(fecha) {
       <p style="margin-bottom:16px">Elegí qué sesiones del <strong>${formatFecha(fecha)}</strong> querés eliminar:</p>
       <div class="limpiar-opciones">
         <label class="limpiar-opcion">
-          <input type="radio" name="limpiar_modo" value="todas" checked>
+          <input type="radio" name="limpiar_modo" value="no-fijas" checked
+            onchange="document.getElementById('limpiar-aviso-fijas').hidden=true">
+          <div>
+            <strong>Solo las no fijas</strong>
+            <div class="text-muted">${noFijasCount} sesión${noFijasCount !== 1 ? 'es' : ''} sin fijar</div>
+          </div>
+        </label>
+        <label class="limpiar-opcion">
+          <input type="radio" name="limpiar_modo" value="todas"
+            onchange="document.getElementById('limpiar-aviso-fijas').hidden=false">
           <div>
             <strong>Todas las sesiones</strong>
             <div class="text-muted">${sesiones.length} sesión${sesiones.length !== 1 ? 'es' : ''} en total</div>
           </div>
         </label>
         <label class="limpiar-opcion">
-          <input type="radio" name="limpiar_modo" value="prof">
+          <input type="radio" name="limpiar_modo" value="prof"
+            onchange="document.getElementById('limpiar-aviso-fijas').hidden=false">
           <div>
             <strong>Solo de un profesional</strong>
             <select id="limpiar-prof-sel" class="select-field" style="margin-top:6px;width:100%"
-              onclick="document.querySelector('input[name=limpiar_modo][value=prof]').checked=true">
+              onclick="document.querySelector('input[name=limpiar_modo][value=prof]').checked=true;document.getElementById('limpiar-aviso-fijas').hidden=false">
               ${profsOpts}
             </select>
           </div>
         </label>
       </div>
-      <div class="aviso-restricciones" style="margin-top:16px">
+      <div class="aviso-restricciones" id="limpiar-aviso-fijas" style="margin-top:16px" hidden>
         <div class="aviso-icono">⚠</div>
         <div>Las sesiones marcadas como <strong>fijas 🔒</strong> también serán eliminadas.</div>
       </div>
@@ -2010,7 +2021,10 @@ function ejecutarLimpiezaSesiones(fecha) {
   const sesiones = Asignaciones.delDia(fecha);
 
   let eliminadas, restantes;
-  if (modo === 'prof' && profId) {
+  if (modo === 'no-fijas') {
+    eliminadas = sesiones.filter(s => !s.fijo);
+    restantes  = sesiones.filter(s => s.fijo);
+  } else if (modo === 'prof' && profId) {
     eliminadas = sesiones.filter(s => s.profesionalId === profId);
     restantes  = sesiones.filter(s => s.profesionalId !== profId);
   } else {
@@ -2032,10 +2046,12 @@ function ejecutarLimpiezaSesiones(fecha) {
 
   cerrarModal();
   renderVista();
-  mostrarToast(
-    prof ? `${eliminadas.length} sesión${eliminadas.length !== 1 ? 'es' : ''} de ${prof.apellido} eliminada${eliminadas.length !== 1 ? 's' : ''}` : 'Agenda del día borrada',
-    'info'
-  );
+  const msg = modo === 'no-fijas'
+    ? `${eliminadas.length} sesión${eliminadas.length !== 1 ? 'es' : ''} no fija${eliminadas.length !== 1 ? 's' : ''} eliminada${eliminadas.length !== 1 ? 's' : ''}`
+    : prof
+      ? `${eliminadas.length} sesión${eliminadas.length !== 1 ? 'es' : ''} de ${prof.apellido} eliminada${eliminadas.length !== 1 ? 's' : ''}`
+      : 'Agenda del día borrada';
+  mostrarToast(msg, 'info');
 }
 
 function eliminarSesion(sesionId, fecha) {
