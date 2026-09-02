@@ -434,6 +434,19 @@ function vistaGrilla() {
       const bloqueados = new Set([...Object.keys(_bCoy), ...Object.keys(_bEst)]);
       const edif = pac.edificio || pac.habitacion || '';
 
+      let _ambulatorioChip = '';
+      if (pac.esAmbulatorio && (pac.diasAsistencia || []).includes(_diaNum)) {
+        const _hor = (pac.horarioAmbulatorioPorDia || {})[_diaNum];
+        if (_hor?.slotIngreso && _hor?.slotEgreso) {
+          const _sIn  = SLOTS.find(s => s.id === _hor.slotIngreso);
+          const _sOut = SLOTS.find(s => s.id === _hor.slotEgreso);
+          const _rango = _sIn && _sOut ? `${_sIn.inicio}–${_sOut.fin}` : '';
+          _ambulatorioChip = `<span class="badge-ambulatorio" title="Ambulatorio">🚶 ${_rango || 'Ambulatorio'}</span>`;
+        } else {
+          _ambulatorioChip = `<span class="badge-ambulatorio" title="Ambulatorio">🚶 Ambulatorio</span>`;
+        }
+      }
+
       html += `<tr>
         <td class="grilla-pac-cell">
           <div class="pac-nombre">${esc(pac.nombre)} ${esc(pac.apellido)}</div>
@@ -441,6 +454,7 @@ function vistaGrilla() {
             ${edif ? `<span class="text-muted" style="font-size:10px">${esc(edif)}</span>` : ''}
             ${grupo ? `<span class="badge" style="background:${grupo.bg};color:${grupo.color};border:1px solid ${grupo.border}">${grupo.label}</span>` : ''}
             ${transf ? `<span class="badge badge-warning" style="font-size:10px">${transf.label}</span>` : ''}
+            ${_ambulatorioChip}
           </div>
         </td>`;
 

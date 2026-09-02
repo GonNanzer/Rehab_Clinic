@@ -383,6 +383,7 @@ body.rol-profesional .admin-only { display: none; }
 .badge-ok      { background: #dcfce7; color: var(--color-success); }
 .badge-warning { background: #fef3c7; color: var(--color-warning); }
 .badge-danger  { background: #fee2e2; color: var(--color-danger); }
+.badge-ambulatorio { background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 10px; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
 
 /* ── Empty states ────────────────────────────────────────────────────────────── */
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
