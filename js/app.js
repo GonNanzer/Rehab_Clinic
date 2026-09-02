@@ -5778,6 +5778,8 @@ function bindMiDisponibilidad() {
 
 // ─── Vista: Mi agenda (profesional) ──────────────────────────────────────────
 
+let _comentariosCache = {};
+
 function vistaAgendaProfesional() {
   const profId = usuarioActual?.profesionalId;
   if (!profId) {
@@ -5815,10 +5817,18 @@ function vistaAgendaProfesional() {
         .map(s => {
           const slot = SLOTS.find(sl => sl.id === s.slotId);
           const pac  = Pacientes.porId(s.pacienteId);
+          const notaKey = `${fechaActiva}__${profId}__${s.pacienteId}__${s.disciplina}`;
           return `<div class="mi-agenda-sesion">
             <span class="mi-agenda-hora">${slot ? slot.label : s.slotId}</span>
             <span class="mi-agenda-pac">${pac ? esc(pac.apellido + ', ' + pac.nombre) : s.pacienteId}</span>
             ${discChip(s.disciplina)}
+            <button class="btn-nota-evolucion" title="Nota de evolución"
+              data-nota-key="${esc(notaKey)}"
+              data-fecha="${fechaActiva}"
+              data-prof-id="${esc(profId)}"
+              data-pac-id="${esc(s.pacienteId)}"
+              data-disc="${esc(s.disciplina)}"
+              onclick="abrirNotaEvolucion(this)">💬</button>
           </div>`;
         }).join('');
 
@@ -5855,6 +5865,98 @@ function bindAgendaProfesional() {
     fechaActiva = e.target.value;
     renderVista();
   });
+  const profId = usuarioActual?.profesionalId;
+  if (profId) {
+    _cargarComentariosDia(fechaActiva, profId).then(_actualizarBotonesNota);
+  }
+}
+
+async function _cargarComentariosDia(fecha, profId) {
+  if (typeof supabaseClient === 'undefined' || !profId) return;
+  const { data, error } = await supabaseClient
+    .from('sesion_comentarios')
+    .select('*')
+    .eq('fecha', fecha)
+    .eq('profesional_id', profId);
+  if (error) { console.error('Error cargando notas:', error); return; }
+  _comentariosCache = {};
+  (data || []).forEach(r => {
+    _comentariosCache[`${r.fecha}__${r.profesional_id}__${r.paciente_id}__${r.disciplina}`] = r.comentario;
+  });
+}
+
+function _actualizarBotonesNota() {
+  document.querySelectorAll('.btn-nota-evolucion').forEach(btn => {
+    const tieneNota = !!_comentariosCache[btn.dataset.notaKey];
+    btn.classList.toggle('has-nota', tieneNota);
+    btn.title = tieneNota ? 'Ver/editar nota de evolución' : 'Agregar nota de evolución';
+  });
+}
+
+function abrirNotaEvolucion(btn) {
+  const { fecha, profId, pacId, disc, notaKey } = btn.dataset;
+  const texto = _comentariosCache[notaKey] || '';
+  const pac = Pacientes.porId(pacId);
+  const pacNombre = pac ? esc(pac.apellido + ', ' + pac.nombre) : pacId;
+  const btnBorrar = texto
+    ? `<button class="btn btn-danger btn-sm" onclick="borrarNotaEvolucion()">Borrar nota</button>`
+    : '';
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Nota de evolución</h3>
+      <button class="btn-icon" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body" data-fecha="${esc(fecha)}" data-prof-id="${esc(profId)}"
+         data-pac-id="${esc(pacId)}" data-disc="${esc(disc)}" data-nota-key="${esc(notaKey)}">
+      <p style="margin:0 0 12px;font-size:13px;color:var(--text-muted)">${pacNombre} · ${esc(disc)}</p>
+      <textarea id="nota-evolucion-texto" class="nota-evolucion-textarea" maxlength="500"
+        placeholder="Escribí tu nota de evolución para esta sesión...">${esc(texto)}</textarea>
+      <div class="nota-char-counter"><span id="nota-char-count">${texto.length}</span>/500</div>
+    </div>
+    <div class="modal-footer">
+      ${btnBorrar}
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarNotaEvolucion()">Guardar</button>
+      </div>
+    </div>
+  `);
+  document.getElementById('nota-evolucion-texto')?.addEventListener('input', e => {
+    document.getElementById('nota-char-count').textContent = e.target.value.length;
+  });
+}
+
+async function guardarNotaEvolucion() {
+  const ta   = document.getElementById('nota-evolucion-texto');
+  const body = document.querySelector('#modal-box .modal-body');
+  if (!ta || !body) return;
+  const texto = ta.value.trim();
+  if (!texto) { mostrarToast('Escribí algo antes de guardar', 'warn'); return; }
+  const { fecha, profId, pacId, disc, notaKey } = body.dataset;
+  const { error } = await supabaseClient.from('sesion_comentarios').upsert(
+    { fecha, profesional_id: profId, paciente_id: pacId, disciplina: disc,
+      comentario: texto, actualizado_en: new Date().toISOString() },
+    { onConflict: 'fecha,profesional_id,paciente_id,disciplina' }
+  );
+  if (error) { mostrarToast('Error al guardar: ' + error.message, 'error'); return; }
+  _comentariosCache[notaKey] = texto;
+  cerrarModal();
+  _actualizarBotonesNota();
+  mostrarToast('Nota guardada', 'ok');
+}
+
+async function borrarNotaEvolucion() {
+  const body = document.querySelector('#modal-box .modal-body');
+  if (!body) return;
+  const { fecha, profId, pacId, disc, notaKey } = body.dataset;
+  const { error } = await supabaseClient.from('sesion_comentarios').delete()
+    .eq('fecha', fecha).eq('profesional_id', profId)
+    .eq('paciente_id', pacId).eq('disciplina', disc);
+  if (error) { mostrarToast('Error al borrar: ' + error.message, 'error'); return; }
+  delete _comentariosCache[notaKey];
+  cerrarModal();
+  _actualizarBotonesNota();
+  mostrarToast('Nota borrada', 'info');
 }
 
 // ─── Vista: Mi perfil (profesional) ──────────────────────────────────────────
