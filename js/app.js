@@ -4228,9 +4228,12 @@ function vistaDisponibilidad() {
     estadoGuardado.profesionalesPresentes.forEach(id => { presencias[id] = 'dia'; });
   } else {
     presencias = {};
-    _profsDelHorario(profs, fechaActiva).forEach(id => { presencias[id] = 'dia'; });
+    _profsDelHorario(profs, fechaActiva).forEach(id => { presencias[id] = 'habitual'; });
   }
-  const cantPresentes = Object.values(presencias).filter(Boolean).length;
+  const cantPresentes = Object.values(presencias).filter(v =>
+    v === 'habitual' || v === 'dia' || v === 'manana' || v === 'tarde' ||
+    (typeof v === 'object' && v !== null && v.ingreso && v.retiro)
+  ).length;
 
   if (!pacSeleccionadoDisp && pacientes.length > 0) pacSeleccionadoDisp = pacientes[0].id;
   if (!profSeleccionadoBloqDisp && profs.length > 0) profSeleccionadoBloqDisp = profs[0].id;
@@ -4304,20 +4307,43 @@ function vistaDisponibilidad() {
           profs.map(p => {
             const pres     = presencias[p.id] || null;
             const excluido = idsExcluidos.includes(p.id);
-            const chkPres = `<input type="checkbox" class="chk-presente" data-id="${p.id}" ${pres ? 'checked' : ''}>`;
-            const chkMan  = `<input type="checkbox" class="chk-manana"  data-id="${p.id}" ${pres==='dia'||pres==='manana' ? 'checked' : ''}>`;
-            const chkTar  = `<input type="checkbox" class="chk-tarde"   data-id="${p.id}" ${pres==='dia'||pres==='tarde'  ? 'checked' : ''}>`;
-            const chkExcl = `<input type="checkbox" class="chk-excluir" data-id="${p.id}" ${excluido ? 'checked' : ''}>`;
+            const habitual = pres === 'habitual' || pres === 'dia' || pres === 'manana' || pres === 'tarde';
+            const esCustom = typeof pres === 'object' && pres !== null;
+            const presente = habitual || esCustom;
+            const ingresoVal = esCustom ? (pres.ingreso || '') : '';
+            const retiroVal  = esCustom ? (pres.retiro  || '') : '';
+            const HORAS_IN  = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
+            const HORAS_RET = ['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
             const discsText = (p.disciplinas||[]).map(d => DISCIPLINAS[d]?.corto||d).join(', ');
-            return `<div class="disp-prof-row${excluido ? ' disp-prof-excluido' : ''}${!pres ? ' disp-prof-ausente' : ''}">
+            const horasCustom = !habitual ? `
+              <span class="disp-horas-custom">
+                <label class="disp-horas-lbl">Ingresa a las
+                  <select class="sel-ingresa" data-id="${p.id}">
+                    <option value="">--</option>
+                    ${HORAS_IN.map(t=>`<option value="${t}"${ingresoVal===t?' selected':''}>${t}</option>`).join('')}
+                  </select>
+                </label>
+                <label class="disp-horas-lbl">Se retira a las
+                  <select class="sel-retira" data-id="${p.id}">
+                    <option value="">--</option>
+                    ${HORAS_RET.map(t=>`<option value="${t}"${retiroVal===t?' selected':''}>${t}</option>`).join('')}
+                  </select>
+                </label>
+              </span>` : '';
+            return `<div class="disp-prof-row${excluido ? ' disp-prof-excluido' : ''}${!presente ? ' disp-prof-ausente' : ''}">
               <span class="disp-prof-info">
                 <span class="disp-prof-nombre">${esc(p.apellido)}, ${esc(p.nombre)}</span>${discsText ? `<span class="disp-prof-discs"> · ${esc(discsText)}</span>` : ''}
               </span>
               <div class="disp-turno-checks">
-                <label class="disp-turno-lbl">${chkPres} Presente</label>
-                <label class="disp-turno-lbl disp-turno-sub">${chkMan} Mañana</label>
-                <label class="disp-turno-lbl disp-turno-sub">${chkTar} Tarde</label>
-                ${pres ? `<label class="disp-turno-lbl disp-turno-excluir" title="Excluir del armado automático">${chkExcl} Excluir</label>` : ''}
+                <label class="disp-turno-lbl">
+                  <input type="checkbox" class="chk-habitual" data-id="${p.id}" ${habitual ? 'checked' : ''}>
+                  Horario habitual
+                </label>
+                ${horasCustom}
+                ${presente ? `<label class="disp-turno-lbl disp-turno-excluir" title="Excluir del armado automático">
+                  <input type="checkbox" class="chk-excluir" data-id="${p.id}" ${excluido ? 'checked' : ''}>
+                  Excluir
+                </label>` : ''}
               </div>
             </div>`;
           }).join('')
@@ -4450,8 +4476,8 @@ function bindDisponibilidad() {
     renderVista();
   });
 
-  // Presencia de profesionales — checkboxes Presente / Mañana / Tarde (auto-save)
-  function _savePres(profId, val) {
+  // Presencia de profesionales — Horario habitual / horas custom (auto-save)
+  function _setPresencia(profId, val) {
     const pres = { ...(DiasState.delDia(fechaActiva).presenciaProfesionales || {}) };
     if (!val) {
       delete pres[profId];
@@ -4464,28 +4490,20 @@ function bindDisponibilidad() {
     renderVista();
   }
 
-  document.querySelectorAll('.chk-presente').forEach(chk => {
+  document.querySelectorAll('.chk-habitual').forEach(chk => {
     chk.addEventListener('change', () => {
-      _savePres(chk.dataset.id, chk.checked ? 'dia' : null);
+      _setPresencia(chk.dataset.id, chk.checked ? 'habitual' : null);
     });
   });
 
-  document.querySelectorAll('.chk-manana').forEach(chk => {
-    chk.addEventListener('change', () => {
-      const profId = chk.dataset.id;
-      const tarChecked = document.querySelector(`.chk-tarde[data-id="${profId}"]`)?.checked;
-      const val = chk.checked ? (tarChecked ? 'dia' : 'manana') : (tarChecked ? 'tarde' : null);
-      _savePres(profId, val);
-    });
-  });
+  function _saveCustomHoras(profId) {
+    const ingreso = document.querySelector(`.sel-ingresa[data-id="${profId}"]`)?.value || '';
+    const retiro  = document.querySelector(`.sel-retira[data-id="${profId}"]`)?.value  || '';
+    _setPresencia(profId, (ingreso && retiro) ? { ingreso, retiro } : null);
+  }
 
-  document.querySelectorAll('.chk-tarde').forEach(chk => {
-    chk.addEventListener('change', () => {
-      const profId = chk.dataset.id;
-      const manChecked = document.querySelector(`.chk-manana[data-id="${profId}"]`)?.checked;
-      const val = chk.checked ? (manChecked ? 'dia' : 'tarde') : (manChecked ? 'manana' : null);
-      _savePres(profId, val);
-    });
+  document.querySelectorAll('.sel-ingresa, .sel-retira').forEach(sel => {
+    sel.addEventListener('change', () => _saveCustomHoras(sel.dataset.id));
   });
 
   // Excluir del armado automático (checkbox)
@@ -4501,7 +4519,7 @@ function bindDisponibilidad() {
 
   document.getElementById('btn-marcar-todos')?.addEventListener('click', () => {
     const pres = {};
-    Profesionales.activos().forEach(p => { pres[p.id] = 'dia'; });
+    Profesionales.activos().forEach(p => { pres[p.id] = 'habitual'; });
     DiasState.setProfesionalesPresencia(fechaActiva, pres);
     renderVista();
   });
@@ -4515,7 +4533,7 @@ function bindDisponibilidad() {
     const profs = Profesionales.activos();
     const ids   = _profsDelHorario(profs, fechaActiva);
     const pres  = {};
-    ids.forEach(id => { pres[id] = 'dia'; });
+    ids.forEach(id => { pres[id] = 'habitual'; });
     DiasState.setProfesionalesPresencia(fechaActiva, pres);
     mostrarToast(`Horario del ${DIAS_SEMANA[_weekday(fechaActiva)]} aplicado`, 'success');
     renderVista();

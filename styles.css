@@ -1421,7 +1421,22 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .disp-prof-row.disp-prof-ausente .disp-prof-nombre { color: var(--text-muted); }
 .disp-prof-row.disp-prof-ausente .dia-chips-row    { opacity: 0.4; }
 
-/* Checkboxes de turno (Presente / Mañana / Tarde) */
+/* Controles de presencia (Horario habitual / horas custom / Excluir) */
+.disp-horas-custom {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 0 10px;
+}
+.disp-horas-lbl {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-muted); white-space: nowrap;
+}
+.disp-horas-lbl select {
+  font-size: 12px; padding: 2px 4px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--card-bg); color: var(--text);
+  cursor: pointer;
+}
+
+/* Checkboxes de turno (Horario habitual / Excluir) */
 .disp-turno-checks {
   display: flex;
   align-items: center;

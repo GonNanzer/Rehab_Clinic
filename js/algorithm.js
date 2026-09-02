@@ -70,7 +70,7 @@ function _discPrioritariaDisponible(discsPrioridad, profsDisponibles, estadoDia,
   const diaNum = _weekday(fecha);
   for (const disc of discsPrioridad) {
     const hayDisponible = profsDisponibles.some(p => {
-      if (!_profEnTurno(estadoDia, p.id, slot.turno, fecha)) return false;
+      if (!_profEnTurno(estadoDia, p.id, slot.turno, fecha, slot.id)) return false;
       if (!(p.disciplinas || []).includes(disc)) return false;
       const horarios = (p.horariosPorDia || {})[diaNum];
       return !(horarios && horarios.length > 0 && !horarios.includes(slot.id));
@@ -394,7 +394,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         profsDisponibles, _estadoAlm, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
-        if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha)) return false;
+        if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaAlm && !(p.disciplinas || []).includes(discElegidaAlm)) return false;
         const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
         if (horariosAlm && horariosAlm.length > 0 && !horariosAlm.includes(slot.id)) return false;
@@ -408,7 +408,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         discsPrioridad, profsDisponibles, _estadoHig, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
-        if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha)) return false;
+        if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaHig && !(p.disciplinas || []).includes(discElegidaHig)) return false;
         const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
         if (horariosHig && horariosHig.length > 0 && !horariosHig.includes(slot.id)) return false;
@@ -419,7 +419,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
       const _estadoSlot = DiasState.delDia(fecha);
       profsValidos = profsDisponibles.filter(p => {
         if (necesidad.profesionalId && p.id !== necesidad.profesionalId) return false;
-        if (!_profEnTurno(_estadoSlot, p.id, slot.turno, fecha)) return false;
+        if (!_profEnTurno(_estadoSlot, p.id, slot.turno, fecha, slot.id)) return false;
         if (!(p.disciplinas || []).includes(disciplina)) return false;
         // Grupo exclusivo: el profesional solo atiende su grupo asignado
         if (p.grupoExclusivo && paciente.grupo !== p.grupoExclusivo) return false;
@@ -573,13 +573,22 @@ function _getPresencia(estado, profId, fecha) {
   return null;
 }
 
-// Devuelve true si el profesional puede trabajar en el turno del slot dado.
-// almuerzo es compatible con cualquier turno.
-function _profEnTurno(estado, profId, slotTurno, fecha) {
+// Devuelve true si el profesional puede trabajar en el slot dado.
+// slotId es opcional pero necesario para validar rangos horarios custom.
+function _profEnTurno(estado, profId, slotTurno, fecha, slotId) {
   const pres = _getPresencia(estado, profId, fecha);
   if (!pres) return false;
-  if (pres === 'dia' || slotTurno === 'almuerzo') return true;
-  return pres === slotTurno;
+  // Habitual o legacy: los slots del perfil se validan por separado en _profDisponibleEnSlot
+  if (pres === 'habitual' || pres === 'dia') return true;
+  if (slotTurno === 'almuerzo') return true;
+  if (pres === 'manana' || pres === 'tarde') return pres === slotTurno;
+  // Rango horario custom: { ingreso: 'HH:MM', retiro: 'HH:MM' }
+  if (typeof pres === 'object' && pres.ingreso && pres.retiro) {
+    const slot = SLOTS.find(s => s.id === slotId);
+    if (!slot) return true; // fallback permisivo
+    return slot.inicio >= pres.ingreso && slot.inicio < pres.retiro;
+  }
+  return true;
 }
 
 function _totalSlotsSemanales(prof) {
@@ -1018,8 +1027,13 @@ function generarAgendaSlotPorSlot(fecha) {
   }
 
   function _profDisponibleEnSlot(prof, slot) {
-    const horarios = (prof.horariosPorDia || {})[diaActual];
-    if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+    const pres = _getPresencia(estado, prof.id, fecha);
+    // Con rango custom el turno ya lo valida _profEnTurno; no aplicar horariosPorDia
+    const esCustom = typeof pres === 'object' && pres !== null && pres.ingreso && pres.retiro;
+    if (!esCustom) {
+      const horarios = (prof.horariosPorDia || {})[diaActual];
+      if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+    }
     if (prof.esCoordinador) {
       const maxSemana = _totalSlotsSemanales(prof) - 1;
       if ((coordSesEstaSemana[prof.id] || 0) >= maxSemana) return false;
@@ -1073,7 +1087,7 @@ function generarAgendaSlotPorSlot(fecha) {
           if (discElegidaAlm && !(prof.disciplinas || []).includes(discElegidaAlm)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
-          if (!_profEnTurno(estado, prof.id, slot.turno, fecha)) continue;
+          if (!_profEnTurno(estado, prof.id, slot.turno, fecha, slot.id)) continue;
           const { total } = calcularPuntaje(
             prof, slot, slotIdx, pac, '_almuerzo', true, false,
             sesiones, profSlotsHoy, sesSemanaMap[pac.id] || []
@@ -1105,7 +1119,7 @@ function generarAgendaSlotPorSlot(fecha) {
           if (discElegidaHig && !(prof.disciplinas || []).includes(discElegidaHig)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
-          if (!_profEnTurno(estado, prof.id, slot.turno, fecha)) continue;
+          if (!_profEnTurno(estado, prof.id, slot.turno, fecha, slot.id)) continue;
           const { total } = calcularPuntaje(
             prof, slot, 0, pac, '_higiene', false, false,
             sesiones, profSlotsHoy, sesSemanaMap[pac.id] || []
@@ -1127,7 +1141,7 @@ function generarAgendaSlotPorSlot(fecha) {
       const profsSlot = profsDisponibles.filter(prof => {
         if (!(prof.disciplinas || []).includes(disc)) return false;
         if (!_profDisponibleEnSlot(prof, slot)) return false;
-        if (!_profEnTurno(estado, prof.id, slot.turno, fecha)) return false;
+        if (!_profEnTurno(estado, prof.id, slot.turno, fecha, slot.id)) return false;
         const status = profSlotsHoy[prof.id]?.[slot.id];
         if (!status) return true;
         // KTR dual: admitir si el profesional solo tiene una sesión (no array)
@@ -1366,7 +1380,7 @@ function mejoraLocal(fecha) {
             // El prof debe estar presente en el turno del slot liberado
             const slotLiberadoDef = SLOTS.find(s => s.id === sesObstáculo.slotId);
             if (!slotLiberadoDef) continue;
-            if (!_profEnTurno(estado, prof.id, slotLiberadoDef.turno, fecha)) continue;
+            if (!_profEnTurno(estado, prof.id, slotLiberadoDef.turno, fecha, slotLiberadoDef.id)) continue;
 
             // El slot liberado no puede quedar adyacente a otra sesión de la
             // misma disciplina que ya tenga nuestro paciente
@@ -1384,7 +1398,7 @@ function mejoraLocal(fecha) {
               if (patientSlots[pacDonor.id]?.[nuevoSlot.id]) continue;    // donor ocupado/bloqueado
 
               // Verificar que el prof puede trabajar en el turno del nuevo slot
-              if (!_profEnTurno(estado, prof.id, nuevoSlot.turno, fecha)) continue;
+              if (!_profEnTurno(estado, prof.id, nuevoSlot.turno, fecha, nuevoSlot.id)) continue;
 
               // Verificar horario específico del prof en el nuevo slot
               const horariosProf = (prof.horariosPorDia || {})[diaNumSwap];
@@ -1581,7 +1595,7 @@ function detectarHuecosRellenables(fecha) {
       const hayCandidato = discsPlan.some(disc =>
         profsDisponibles.some(p =>
           (p.disciplinas || []).includes(disc) &&
-          _profEnTurno(estado, p.id, slot.turno, fecha) &&
+          _profEnTurno(estado, p.id, slot.turno, fecha, slot.id) &&
           !profSlotsHoy[p.id]?.[slot.id]
         )
       );
