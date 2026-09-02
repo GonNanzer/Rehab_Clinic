@@ -2482,7 +2482,26 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   font-weight: 500;
   background: #fafafa;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+.btn-bano-copiar {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  font-size: 10px; color: var(--text-muted); cursor: pointer; padding: 1px 5px;
+  white-space: nowrap; font-weight: normal; line-height: 1.4;
+  transition: color .12s, border-color .12s;
+}
+.btn-bano-copiar:hover { color: var(--color-info); border-color: var(--color-info); }
+.copia-dia-lista { display: flex; flex-direction: column; gap: 4px; }
+.copia-dia-opcion {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  transition: background .12s;
+}
+.copia-dia-opcion:hover { background: var(--bg); }
+.copia-dia-opcion input { cursor: pointer; }
 .bano-td-dia.bano-weekend { color: var(--text-muted); background: #f8f9fb; }
 .bano-td-fecha { font-size: 10px; color: var(--text-muted); font-weight: normal; margin-left: 4px; }
 .bano-td-slot {

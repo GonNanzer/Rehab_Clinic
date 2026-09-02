@@ -2763,7 +2763,10 @@ function _banosVistaPorPaciente(pacientes) {
       }).join('');
       const wkCls = d.weekend ? ' bano-weekend' : '';
       const fechaDia = _diaFecha[d.dia];
-      return `<tr><td class="bano-td-dia${wkCls}">${d.label}<span class="bano-td-fecha"> ${_fmtFull(fechaDia)}</span></td>${celdas}</tr>`;
+      return `<tr><td class="bano-td-dia${wkCls}">
+        <span>${d.label}<span class="bano-td-fecha"> ${_fmtFull(fechaDia)}</span></span>
+        <button class="btn-bano-copiar" onclick="event.stopPropagation();abrirCopiarDiaBano('${pac.id}',${d.dia})" title="Copiar horarios de este día a otros días">Copiar →</button>
+      </td>${celdas}</tr>`;
     }).join('');
 
     let ultimaActLabel = '';
@@ -2809,6 +2812,51 @@ function guardarBanosPac(pacId) {
   const el = document.getElementById(`bano-fecha-${pacId}`);
   if (el) el.textContent = label;
   mostrarToast(`Baños de ${pac.nombre} guardados`, 'success');
+}
+
+function abrirCopiarDiaBano(pacId, diaOrigen) {
+  const origen = _BANO_DIAS.find(d => d.dia === diaOrigen);
+  const destinos = _BANO_DIAS.filter(d => d.dia !== diaOrigen);
+  const opciones = destinos.map(d => `
+    <label class="copia-dia-opcion">
+      <input type="checkbox" class="copia-dia-chk" value="${d.dia}">
+      <span>${d.label}</span>
+    </label>`).join('');
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Copiar horarios del ${origen.label}</h3>
+      <button class="btn-icon" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 14px;font-size:13px;color:var(--text-muted)">
+        Seleccioná los días a los que querés copiar los mismos horarios de baño.
+      </p>
+      <div class="copia-dia-lista">${opciones}</div>
+    </div>
+    <div class="modal-footer">
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarCopiarDiaBano('${pacId}',${diaOrigen})">Copiar</button>
+      </div>
+    </div>
+  `);
+}
+
+function confirmarCopiarDiaBano(pacId, diaOrigen) {
+  const slotsOrigen = new Set();
+  document.querySelectorAll(`.bano-chk[data-pac="${pacId}"][data-dia="${diaOrigen}"]`).forEach(chk => {
+    if (chk.checked) slotsOrigen.add(chk.dataset.slot);
+  });
+  const diasDestino = [...document.querySelectorAll('.copia-dia-chk:checked')].map(c => Number(c.value));
+  if (diasDestino.length === 0) { mostrarToast('Seleccioná al menos un día destino', 'warn'); return; }
+  diasDestino.forEach(dia => {
+    document.querySelectorAll(`.bano-chk[data-pac="${pacId}"][data-dia="${dia}"]`).forEach(chk => {
+      chk.checked = slotsOrigen.has(chk.dataset.slot);
+    });
+  });
+  cerrarModal();
+  const n = diasDestino.length;
+  mostrarToast(`Copiado a ${n} día${n > 1 ? 's' : ''} — recordá guardar`, 'info');
 }
 
 function guardarBanos() {
