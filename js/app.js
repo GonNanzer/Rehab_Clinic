@@ -5434,22 +5434,29 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
       <button class="btn btn-primary" onclick="guardarUsuario('${uid}')">Guardar</button>
     </div>`);
 
-  document.getElementById('modal-usr-rol')?.addEventListener('change', e => {
+  const selRol = document.getElementById('modal-usr-rol');
+  selRol?.addEventListener('change', e => {
     document.getElementById('grp-prof-vinc').style.display = e.target.value === 'profesional' ? '' : 'none';
   });
-  if (rolActual !== 'profesional') document.getElementById('grp-prof-vinc').style.display = 'none';
+  // Usar el valor real del select (no rolActual) para el estado inicial:
+  // cuando rolActual='pendiente' el select muestra 'profesional' por defecto.
+  if (selRol?.value !== 'profesional') document.getElementById('grp-prof-vinc').style.display = 'none';
 }
 
 async function guardarUsuario(uid) {
   const rol    = document.getElementById('modal-usr-rol').value;
   const profId = document.getElementById('modal-usr-prof')?.value || null;
 
-  const { error } = await supabaseClient
+  const { error, count } = await supabaseClient
     .from('user_profiles')
-    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null })
+    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null }, { count: 'exact' })
     .eq('auth_user_id', uid);
 
   if (error) { mostrarToast('Error al guardar: ' + error.message, 'error'); return; }
+  if (count === 0) {
+    mostrarToast('Sin permiso para actualizar este usuario (RLS). Revisá las políticas en Supabase.', 'error', 7000);
+    return;
+  }
   cerrarModal();
   _userProfiles = null;
   mostrarToast('Usuario actualizado', 'success');
