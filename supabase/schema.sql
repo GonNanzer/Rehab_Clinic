@@ -34,6 +34,11 @@ as $$
     select 1 from public.usuarios_permitidos
     where email = auth.jwt() ->> 'email'
       and activo = true
+  )
+  or exists (
+    select 1 from public.user_profiles
+    where auth_user_id = auth.uid()
+      and rol = 'admin'
   );
 $$;
 
