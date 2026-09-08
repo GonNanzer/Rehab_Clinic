@@ -2658,8 +2658,8 @@ function bindEgresados() {}
 
 // ─── Exclusiones pac ↔ prof ──────────────────────────────────────────────────
 
-let _exclFiltroPac  = null; // null = todos los grupos
-let _exclFiltroDisc = null; // null = todas las disciplinas
+let _exclFiltroPac  = null;    // null = todos los grupos
+let _exclFiltroDisc = new Set(); // vacío = todas las disciplinas
 
 function vistaExclusiones() {
   const pacientes   = _sortPacientes(Pacientes.activos());
@@ -2670,8 +2670,8 @@ function vistaExclusiones() {
   // Disciplinas presentes en profesionales
   const discsPresentes = [...new Set(profesionales.flatMap(p => p.disciplinas || []))].sort();
 
-  const pacsFiltrados  = _exclFiltroPac  ? pacientes.filter(p => p.grupo === _exclFiltroPac)  : pacientes;
-  const profsFiltrados = _exclFiltroDisc ? profesionales.filter(p => (p.disciplinas || []).includes(_exclFiltroDisc)) : profesionales;
+  const pacsFiltrados  = _exclFiltroPac       ? pacientes.filter(p => p.grupo === _exclFiltroPac) : pacientes;
+  const profsFiltrados = _exclFiltroDisc.size  ? profesionales.filter(p => (p.disciplinas || []).some(d => _exclFiltroDisc.has(d))) : profesionales;
 
   // Filtros de grupo para pacientes
   const filtrosGrupo = `<div class="excl-filtros">
@@ -2685,14 +2685,15 @@ function vistaExclusiones() {
     }).join('')}
   </div>`;
 
-  // Filtros de disciplina para profesionales
+  // Filtros de disciplina para profesionales (multi-select)
   const filtrosDisc = `<div class="excl-filtros">
     <span class="excl-filtro-lbl">Profesionales:</span>
-    <button class="excl-chip${!_exclFiltroDisc ? ' active' : ''}" onclick="setExclFiltro('disc', null)">Todos</button>
+    <button class="excl-chip${_exclFiltroDisc.size === 0 ? ' active' : ''}" onclick="setExclFiltro('disc', null)">Todos</button>
     ${discsPresentes.map(dk => {
       const d = DISCIPLINAS[dk];
-      return `<button class="excl-chip${_exclFiltroDisc === dk ? ' active' : ''}"
-        style="${_exclFiltroDisc === dk ? `background:${d.bg};color:${d.color};border-color:${d.border}` : ''}"
+      const on = _exclFiltroDisc.has(dk);
+      return `<button class="excl-chip${on ? ' active' : ''}"
+        style="${on ? `background:${d.bg};color:${d.color};border-color:${d.border}` : ''}"
         onclick="setExclFiltro('disc', '${dk}')">${d?.corto || dk}</button>`;
     }).join('')}
   </div>`;
@@ -2762,8 +2763,17 @@ function vistaExclusiones() {
 function bindExclusiones() {}
 
 function setExclFiltro(tipo, valor) {
-  if (tipo === 'pac')  _exclFiltroPac  = valor;
-  if (tipo === 'disc') _exclFiltroDisc = valor;
+  if (tipo === 'pac') {
+    _exclFiltroPac = valor;
+  } else if (tipo === 'disc') {
+    if (valor === null) {
+      _exclFiltroDisc.clear();
+    } else if (_exclFiltroDisc.has(valor)) {
+      _exclFiltroDisc.delete(valor);
+    } else {
+      _exclFiltroDisc.add(valor);
+    }
+  }
   renderVista();
 }
 
