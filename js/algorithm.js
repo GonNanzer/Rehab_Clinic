@@ -72,8 +72,13 @@ function _discPrioritariaDisponible(discsPrioridad, profsDisponibles, estadoDia,
     const hayDisponible = profsDisponibles.some(p => {
       if (!_profEnTurno(estadoDia, p.id, slot.turno, fecha, slot.id)) return false;
       if (!(p.disciplinas || []).includes(disc)) return false;
-      const horarios = (p.horariosPorDia || {})[diaNum];
-      return !(horarios && horarios.length > 0 && !horarios.includes(slot.id));
+      const presDisc = _getPresencia(estadoDia, p.id, fecha);
+      const esCustomDisc = typeof presDisc === 'object' && presDisc !== null && presDisc.ingreso && presDisc.retiro;
+      if (!esCustomDisc) {
+        const horarios = (p.horariosPorDia || {})[diaNum];
+        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+      }
+      return true;
     });
     if (hayDisponible) return disc;
   }
@@ -397,8 +402,12 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
         if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaAlm && !(p.disciplinas || []).includes(discElegidaAlm)) return false;
-        const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
-        if (horariosAlm && horariosAlm.length > 0 && !horariosAlm.includes(slot.id)) return false;
+        const presAlm = _getPresencia(_estadoAlm, p.id, fecha);
+        const esCustomAlm = typeof presAlm === 'object' && presAlm !== null && presAlm.ingreso && presAlm.retiro;
+        if (!esCustomAlm) {
+          const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
+          if (horariosAlm && horariosAlm.length > 0 && !horariosAlm.includes(slot.id)) return false;
+        }
         const slotStatus = profSlotsHoy[p.id]?.[slot.id];
         return !slotStatus;
       });
@@ -412,8 +421,12 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
         if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaHig && !(p.disciplinas || []).includes(discElegidaHig)) return false;
-        const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
-        if (horariosHig && horariosHig.length > 0 && !horariosHig.includes(slot.id)) return false;
+        const presHig = _getPresencia(_estadoHig, p.id, fecha);
+        const esCustomHig = typeof presHig === 'object' && presHig !== null && presHig.ingreso && presHig.retiro;
+        if (!esCustomHig) {
+          const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
+          if (horariosHig && horariosHig.length > 0 && !horariosHig.includes(slot.id)) return false;
+        }
         const slotStatus = profSlotsHoy[p.id]?.[slot.id];
         return !slotStatus;
       });
@@ -428,8 +441,12 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         if (p.grupoExclusivo && paciente.grupo !== p.grupoExclusivo) return false;
         // Verificar disponibilidad horaria del profesional en este slot
         const diaNum = _weekday(fecha);
-        const horarios = (p.horariosPorDia || {})[diaNum];
-        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+        const presReg = _getPresencia(_estadoSlot, p.id, fecha);
+        const esCustomReg = typeof presReg === 'object' && presReg !== null && presReg.ingreso && presReg.retiro;
+        if (!esCustomReg) {
+          const horarios = (p.horariosPorDia || {})[diaNum];
+          if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+        }
         // Coordinador: cuota semanal (max total_slots_semana - 1)
         if (p.esCoordinador && ctx.coordSesEstaSemana) {
           const maxSemana = _totalSlotsSemanales(p) - 1;
@@ -583,14 +600,14 @@ function _profEnTurno(estado, profId, slotTurno, fecha, slotId) {
   if (!pres) return false;
   // Habitual o legacy: los slots del perfil se validan por separado en _profDisponibleEnSlot
   if (pres === 'habitual' || pres === 'dia') return true;
-  if (slotTurno === 'almuerzo') return true;
-  if (pres === 'manana' || pres === 'tarde') return pres === slotTurno;
-  // Rango horario custom: { ingreso: 'HH:MM', retiro: 'HH:MM' }
+  // Rango horario custom: evaluar ANTES que los shortcuts de turno para no bypass-ear el rango
   if (typeof pres === 'object' && pres.ingreso && pres.retiro) {
     const slot = SLOTS.find(s => s.id === slotId);
-    if (!slot) return true; // fallback permisivo
+    if (!slot) return true;
     return slot.inicio >= pres.ingreso && slot.inicio < pres.retiro;
   }
+  if (slotTurno === 'almuerzo') return true;
+  if (pres === 'manana' || pres === 'tarde') return pres === slotTurno;
   return true;
 }
 
@@ -1408,8 +1425,12 @@ function mejoraLocal(fecha) {
               if (!_profEnTurno(estado, prof.id, nuevoSlot.turno, fecha, nuevoSlot.id)) continue;
 
               // Verificar horario específico del prof en el nuevo slot
-              const horariosProf = (prof.horariosPorDia || {})[diaNumSwap];
-              if (horariosProf && horariosProf.length > 0 && !horariosProf.includes(nuevoSlot.id)) continue;
+              const presSwap = _getPresencia(estado, prof.id, fecha);
+              const esCustomSwap = typeof presSwap === 'object' && presSwap !== null && presSwap.ingreso && presSwap.retiro;
+              if (!esCustomSwap) {
+                const horariosProf = (prof.horariosPorDia || {})[diaNumSwap];
+                if (horariosProf && horariosProf.length > 0 && !horariosProf.includes(nuevoSlot.id)) continue;
+              }
 
               // Que el donante tampoco quede con la misma disciplina en slots consecutivos
               const idxNuevo = SLOTS.findIndex(s => s.id === nuevoSlot.id);

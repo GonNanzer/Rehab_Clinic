@@ -230,8 +230,13 @@ function vistaGrilla() {
   SLOTS.forEach(slot => {
     _libresBySlot[slot.id] = _profsPresentes.filter(p => {
       if (_busyBySlot[slot.id].has(p.id)) return false;
-      const horarios = (p.horariosPorDia || {})[_diaNum];
-      if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+      if (!_profEnTurno(estado, p.id, slot.turno, fechaActiva, slot.id)) return false;
+      const presLib = _getPresencia(estado, p.id, fechaActiva);
+      const esCustomLib = typeof presLib === 'object' && presLib !== null && presLib.ingreso && presLib.retiro;
+      if (!esCustomLib) {
+        const horarios = (p.horariosPorDia || {})[_diaNum];
+        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
+      }
       return true;
     });
   });
