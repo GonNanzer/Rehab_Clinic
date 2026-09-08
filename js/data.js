@@ -212,6 +212,7 @@ const Pacientes = {
       requiereAlmuerzoTerapeutico: false,
       disciplinasAlmuerzo: [],          // disciplinas responsables, en orden de prioridad ([] = "-elegir-": cualquiera)
       referentes: {},
+      exclusionesProfesionales: [],        // [profId] — profesionales que no atienden a este paciente
       ...datos
     };
     const lista = this.todos();

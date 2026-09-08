@@ -174,6 +174,7 @@ function renderVista() {
     case 'lista-prof':    contenedor.innerHTML = vistaListaProf();         bindListaProf();         break;
     case 'banos':         contenedor.innerHTML = vistaBanos();                                      break;
     case 'egresados':     contenedor.innerHTML = vistaEgresados();         bindEgresados();         break;
+    case 'exclusiones':   contenedor.innerHTML = vistaExclusiones();      bindExclusiones();       break;
     case 'profesionales': contenedor.innerHTML = vistaProfesionales();     bindProfesionales();     break;
     case 'practicantes':  contenedor.innerHTML = vistaPracticantes();      bindPracticantes();      break;
     case 'planes':        contenedor.innerHTML = vistaPlanes();            bindPlanes();            break;
@@ -2654,6 +2655,135 @@ function vistaEgresados() {
 }
 
 function bindEgresados() {}
+
+// ─── Exclusiones pac ↔ prof ──────────────────────────────────────────────────
+
+let _exclFiltroPac  = null; // null = todos los grupos
+let _exclFiltroDisc = null; // null = todas las disciplinas
+
+function vistaExclusiones() {
+  const pacientes   = _sortPacientes(Pacientes.activos());
+  const profesionales = Profesionales.activos().sort((a, b) => a.apellido.localeCompare(b.apellido));
+
+  // Grupos diagnósticos presentes
+  const gruposPresentes = [...new Set(pacientes.map(p => p.grupo).filter(Boolean))];
+  // Disciplinas presentes en profesionales
+  const discsPresentes = [...new Set(profesionales.flatMap(p => p.disciplinas || []))].sort();
+
+  const pacsFiltrados  = _exclFiltroPac  ? pacientes.filter(p => p.grupo === _exclFiltroPac)  : pacientes;
+  const profsFiltrados = _exclFiltroDisc ? profesionales.filter(p => (p.disciplinas || []).includes(_exclFiltroDisc)) : profesionales;
+
+  // Filtros de grupo para pacientes
+  const filtrosGrupo = `<div class="excl-filtros">
+    <span class="excl-filtro-lbl">Pacientes:</span>
+    <button class="excl-chip${!_exclFiltroPac ? ' active' : ''}" onclick="setExclFiltro('pac', null)">Todos</button>
+    ${gruposPresentes.map(gk => {
+      const g = GRUPOS_DIAGNOSTICOS[gk];
+      return `<button class="excl-chip${_exclFiltroPac === gk ? ' active' : ''}"
+        style="${_exclFiltroPac === gk ? `background:${g.bg};color:${g.color};border-color:${g.border}` : ''}"
+        onclick="setExclFiltro('pac', '${gk}')">${g.label}</button>`;
+    }).join('')}
+  </div>`;
+
+  // Filtros de disciplina para profesionales
+  const filtrosDisc = `<div class="excl-filtros">
+    <span class="excl-filtro-lbl">Profesionales:</span>
+    <button class="excl-chip${!_exclFiltroDisc ? ' active' : ''}" onclick="setExclFiltro('disc', null)">Todos</button>
+    ${discsPresentes.map(dk => {
+      const d = DISCIPLINAS[dk];
+      return `<button class="excl-chip${_exclFiltroDisc === dk ? ' active' : ''}"
+        style="${_exclFiltroDisc === dk ? `background:${d.bg};color:${d.color};border-color:${d.border}` : ''}"
+        onclick="setExclFiltro('disc', '${dk}')">${d?.corto || dk}</button>`;
+    }).join('')}
+  </div>`;
+
+  if (profsFiltrados.length === 0 || pacsFiltrados.length === 0) {
+    return `<div class="vista-header"><div class="vista-header-left"><h2>Exclusiones</h2></div></div>
+      ${filtrosGrupo}${filtrosDisc}
+      <div class="empty-state"><p>No hay datos con los filtros seleccionados.</p></div>`;
+  }
+
+  // Encabezados de columna: profesionales
+  const thProfs = profsFiltrados.map(prof => {
+    const disc0 = (prof.disciplinas || [])[0];
+    const d = disc0 ? DISCIPLINAS[disc0] : null;
+    return `<th class="excl-th-prof" title="${esc(prof.apellido + ', ' + prof.nombre)}">
+      <div class="excl-prof-header">
+        <span class="excl-prof-nombre">${esc(prof.apellido)}</span>
+        ${d ? `<span class="excl-prof-disc" style="color:${d.color}">${d.corto}</span>` : ''}
+      </div>
+    </th>`;
+  }).join('');
+
+  // Filas: pacientes
+  const filas = pacsFiltrados.map(pac => {
+    const excluidos = new Set(pac.exclusionesProfesionales || []);
+    const grupo = GRUPOS_DIAGNOSTICOS[pac.grupo];
+    const celdas = profsFiltrados.map(prof => {
+      const activo = excluidos.has(prof.id);
+      return `<td class="excl-celda">
+        <button class="excl-toggle${activo ? ' excl-on' : ''}"
+          onclick="toggleExclusion('${pac.id}', '${prof.id}')"
+          title="${activo ? 'Excluido — click para quitar' : 'Sin exclusión — click para excluir'}">
+          ${activo ? '🚫' : ''}
+        </button>
+      </td>`;
+    }).join('');
+
+    const grupoStyle = grupo ? `border-left: 3px solid ${grupo.color}` : '';
+    return `<tr>
+      <td class="excl-td-pac" style="${grupoStyle}">
+        <span class="excl-pac-nombre">${esc(pac.apellido)}, ${esc(pac.nombre)}</span>
+        ${grupo ? `<span class="excl-pac-grupo" style="color:${grupo.color}">${grupo.label}</span>` : ''}
+      </td>
+      ${celdas}
+    </tr>`;
+  }).join('');
+
+  return `<div class="vista-header">
+    <div class="vista-header-left"><h2>Exclusiones</h2></div>
+    <div class="vista-header-right">
+      <span class="text-muted" style="font-size:12px">🚫 = el algoritmo no asigna ese profesional a ese paciente</span>
+    </div>
+  </div>
+  ${filtrosGrupo}
+  ${filtrosDisc}
+  <div class="excl-tabla-wrap">
+    <table class="excl-tabla">
+      <thead><tr>
+        <th class="excl-th-pac">Paciente</th>
+        ${thProfs}
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  </div>`;
+}
+
+function bindExclusiones() {}
+
+function setExclFiltro(tipo, valor) {
+  if (tipo === 'pac')  _exclFiltroPac  = valor;
+  if (tipo === 'disc') _exclFiltroDisc = valor;
+  renderVista();
+}
+
+function toggleExclusion(pacId, profId) {
+  const pac = Pacientes.porId(pacId);
+  if (!pac) return;
+  const excluidos = [...(pac.exclusionesProfesionales || [])];
+  const idx = excluidos.indexOf(profId);
+  if (idx >= 0) excluidos.splice(idx, 1);
+  else excluidos.push(profId);
+  Pacientes.actualizar(pacId, { exclusionesProfesionales: excluidos });
+  // Actualizar solo el botón sin re-renderizar toda la vista
+  const btn = document.querySelector(`.excl-toggle[onclick="toggleExclusion('${pacId}', '${profId}')"]`);
+  if (btn) {
+    const activo = excluidos.includes(profId);
+    btn.classList.toggle('excl-on', activo);
+    btn.textContent = activo ? '🚫' : '';
+    btn.title = activo ? 'Excluido — click para quitar' : 'Sin exclusión — click para excluir';
+  }
+}
 
 function reactivarPaciente(id) {
   Pacientes.actualizar(id, { egresado: false, activo: true });

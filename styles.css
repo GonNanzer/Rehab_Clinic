@@ -2767,3 +2767,24 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   transform: translateX(-50%);
   border-bottom-color: #1e293b;
 }
+
+/* ── Exclusiones pac ↔ prof ─────────────────────────────────────────────────── */
+.excl-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 0; }
+.excl-filtro-lbl { font-size: 12px; font-weight: 600; color: var(--color-text-muted); margin-right: 2px; }
+.excl-chip { padding: 3px 10px; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-surface); font-size: 12px; cursor: pointer; transition: all .15s; }
+.excl-chip.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.excl-tabla-wrap { overflow-x: auto; margin-top: 8px; }
+.excl-tabla { border-collapse: collapse; width: max-content; min-width: 100%; }
+.excl-tabla th, .excl-tabla td { border: 1px solid var(--color-border); }
+.excl-th-pac { position: sticky; left: 0; z-index: 2; background: var(--color-surface); min-width: 160px; padding: 8px 10px; font-size: 12px; text-align: left; }
+.excl-th-prof { min-width: 72px; max-width: 88px; padding: 6px 4px; background: var(--color-surface); text-align: center; }
+.excl-prof-header { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.excl-prof-nombre { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+.excl-prof-disc { font-size: 10px; font-weight: 400; }
+.excl-td-pac { position: sticky; left: 0; z-index: 1; background: var(--color-surface); padding: 6px 10px; white-space: nowrap; }
+.excl-pac-nombre { font-size: 12px; font-weight: 500; display: block; }
+.excl-pac-grupo { font-size: 10px; font-weight: 600; }
+.excl-celda { text-align: center; padding: 4px; }
+.excl-toggle { width: 32px; height: 28px; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; font-size: 14px; line-height: 1; transition: background .15s, border-color .15s; }
+.excl-toggle:hover { background: var(--color-hover); }
+.excl-toggle.excl-on { background: #fee2e2; border-color: #fca5a5; }

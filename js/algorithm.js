@@ -394,6 +394,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         profsDisponibles, _estadoAlm, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
+        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
         if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaAlm && !(p.disciplinas || []).includes(discElegidaAlm)) return false;
         const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
@@ -408,6 +409,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         discsPrioridad, profsDisponibles, _estadoHig, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
+        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
         if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha, slot.id)) return false;
         if (discElegidaHig && !(p.disciplinas || []).includes(discElegidaHig)) return false;
         const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
@@ -419,6 +421,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
       const _estadoSlot = DiasState.delDia(fecha);
       profsValidos = profsDisponibles.filter(p => {
         if (necesidad.profesionalId && p.id !== necesidad.profesionalId) return false;
+        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
         if (!_profEnTurno(_estadoSlot, p.id, slot.turno, fecha, slot.id)) return false;
         if (!(p.disciplinas || []).includes(disciplina)) return false;
         // Grupo exclusivo: el profesional solo atiende su grupo asignado
