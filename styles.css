@@ -110,20 +110,30 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 }
 .nav-sub .nav-icon { font-size: 12px; }
 
-/* Encabezados de sección en el nav (no son botones navegables) */
+/* Nav groups: colapsan/expanden sus hijos */
+.nav-group { }
+.nav-children { display: none; }
+.nav-group.open > .nav-children { display: block; }
+
+/* Ítem padre: negrita + caret indicador */
+.nav-parent { font-weight: 600; }
+.nav-parent::after {
+  content: '›';
+  margin-left: auto;
+  font-size: 13px;
+  display: inline-block;
+  transition: transform 0.18s ease, opacity 0.12s ease;
+}
+.nav-group.open > .nav-parent::after { transform: rotate(90deg); }
+
+/* Encabezados de sección no navegables (Estadísticas, Datos) */
 .nav-section-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--sidebar-text-muted);
-  padding: 12px 12px 4px;
-  pointer-events: none;
-  white-space: nowrap;
-  overflow: hidden;
+  cursor: pointer;
 }
 
 /* Solo existe en mobile (ver @media más abajo) — herramienta pensada
@@ -134,7 +144,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 
 /* Etiquetas de texto: se revelan al expandir */
 .nav-btn > span:not(.nav-icon),
-.nav-section-label,
+.nav-parent::after,
 .sidebar-header h1,
 .sidebar-subtitle,
 .sidebar-footer,
@@ -144,7 +154,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   transition: opacity 0.12s ease;
 }
 .sidebar:hover .nav-btn > span:not(.nav-icon),
-.sidebar:hover .nav-section-label,
+.sidebar:hover .nav-parent::after,
 .sidebar:hover .sidebar-header h1,
 .sidebar:hover .sidebar-subtitle,
 .sidebar:hover .sidebar-footer,
@@ -250,8 +260,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 /* Admin ve solo items admin */
 body.rol-admin .admin-only  { display: flex; }
 body.rol-admin .admin-only.sidebar-persist,
-body.rol-admin .admin-only.sidebar-actions,
-body.rol-admin .admin-only.nav-section-label { display: flex; }
+body.rol-admin .admin-only.sidebar-actions { display: block; }
 body.rol-admin .pro-only    { display: none; }
 /* Profesional ve solo items pro */
 body.rol-profesional .pro-only   { display: flex; }

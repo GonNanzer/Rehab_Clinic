@@ -20,112 +20,138 @@
 
     <nav class="sidebar-nav">
       <!-- ── Vistas exclusivas del profesional ──────────────────────────── -->
-      <button class="nav-btn pro-only" data-vista="mi-agenda"
-        data-tooltip="Tus sesiones asignadas para el día seleccionado." data-tooltip-pos="right">
-        <span class="nav-icon">📅</span>
-        <span>Mi agenda</span>
-      </button>
-      <button class="nav-btn nav-sub pro-only" data-vista="mi-disponibilidad"
-        data-tooltip="Avisá si vas a faltar o si venís solo a la mañana o a la tarde en un día particular." data-tooltip-pos="right">
-        <span class="nav-icon">📆</span>
-        <span>Mi disponibilidad</span>
-      </button>
-      <button class="nav-btn nav-sub pro-only" data-vista="mi-perfil"
-        data-tooltip="Editá tus horarios disponibles y grupos de preferencia." data-tooltip-pos="right">
-        <span class="nav-icon">👤</span>
-        <span>Mi perfil</span>
-      </button>
+      <div class="nav-group">
+        <button class="nav-btn nav-parent pro-only" data-vista="mi-agenda"
+          data-tooltip="Tus sesiones asignadas para el día seleccionado." data-tooltip-pos="right">
+          <span class="nav-icon">📅</span>
+          <span>Mi agenda</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub pro-only" data-vista="mi-disponibilidad"
+            data-tooltip="Avisá si vas a faltar o si venís solo a la mañana o a la tarde en un día particular." data-tooltip-pos="right">
+            <span class="nav-icon">📆</span>
+            <span>Mi disponibilidad</span>
+          </button>
+          <button class="nav-btn nav-sub pro-only" data-vista="mi-perfil"
+            data-tooltip="Editá tus horarios disponibles y grupos de preferencia." data-tooltip-pos="right">
+            <span class="nav-icon">👤</span>
+            <span>Mi perfil</span>
+          </button>
+        </div>
+      </div>
 
       <!-- ── Vistas de admin ─────────────────────────────────────────────── -->
-      <button class="nav-btn admin-only active" data-vista="grilla"
-        data-tooltip="Vista principal: grilla de sesiones del día por paciente. Generá, editá y reorganizá sesiones arrastrándolas." data-tooltip-pos="right">
-        <span class="nav-icon">📅</span>
-        <span>Agenda del día</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="lista-prof"
-        data-tooltip="Mismas sesiones del día vistas por profesional en lugar de por paciente." data-tooltip-pos="right">
-        <span class="nav-icon">📋</span>
-        <span>Lista por profesional</span>
-      </button>
-      <button class="nav-btn nav-sub nav-mobile-only admin-only" data-vista="sesionRapida"
-        data-tooltip="Generador simple de sesiones fijas: día, paciente, horario, disciplina y profesional, sin usar la grilla." data-tooltip-pos="right">
-        <span class="nav-icon">⚡</span>
-        <span>Nueva sesión fija</span>
-      </button>
-      <button class="nav-btn admin-only" data-vista="disponibilidad"
+      <div class="nav-group">
+        <button class="nav-btn nav-parent admin-only active" data-vista="grilla"
+          data-tooltip="Vista principal: grilla de sesiones del día por paciente. Generá, editá y reorganizá sesiones arrastrándolas." data-tooltip-pos="right">
+          <span class="nav-icon">📅</span>
+          <span>Agenda del día</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub admin-only" data-vista="lista-prof"
+            data-tooltip="Mismas sesiones del día vistas por profesional en lugar de por paciente." data-tooltip-pos="right">
+            <span class="nav-icon">📋</span>
+            <span>Lista por profesional</span>
+          </button>
+          <button class="nav-btn nav-sub nav-mobile-only admin-only" data-vista="sesionRapida"
+            data-tooltip="Generador simple de sesiones fijas: día, paciente, horario, disciplina y profesional, sin usar la grilla." data-tooltip-pos="right">
+            <span class="nav-icon">⚡</span>
+            <span>Nueva sesión fija</span>
+          </button>
+        </div>
+      </div>
+      <button class="nav-btn nav-parent admin-only" data-vista="disponibilidad"
         data-tooltip="Indicá qué profesionales asisten hoy, si vienen a la mañana, tarde o día completo, y quiénes quedan excluidos de la asignación automática." data-tooltip-pos="right">
         <span class="nav-icon">✅</span>
         <span>Disponibilidad</span>
       </button>
-      <button class="nav-btn admin-only" data-vista="pacientes"
-        data-tooltip="Gestioná el padrón de pacientes: diagnóstico, prescripciones de terapias, bloqueos de horario y prioridad de asignación." data-tooltip-pos="right">
-        <span class="nav-icon">👥</span>
-        <span>Pacientes</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="banos"
-        data-tooltip="Configurá los horarios de baño semanales de cada paciente para que el algoritmo no les asigne sesiones en esos slots." data-tooltip-pos="right">
-        <span class="nav-icon">🛁</span>
-        <span>Horarios de Baño</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="egresados"
-        data-tooltip="Pacientes que ya no forman parte de la agenda diaria. Podés reactivarlos en cualquier momento." data-tooltip-pos="right">
-        <span class="nav-icon">🎓</span>
-        <span>Egresados</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="exclusiones"
-        data-tooltip="Configurá qué profesionales no atienden a qué pacientes. El algoritmo respeta estas exclusiones al asignar sesiones." data-tooltip-pos="right">
-        <span class="nav-icon">🚫</span>
-        <span>Exclusiones</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="planes"
-        data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
-        <span class="nav-icon">📋</span>
-        <span>Planes semanales</span>
-      </button>
-      <button class="nav-btn admin-only" data-vista="profesionales"
-        data-tooltip="Gestioná el padrón de profesionales: disciplinas, días laborales, horarios disponibles y cuota semanal máxima." data-tooltip-pos="right">
-        <span class="nav-icon">👨‍⚕️</span>
-        <span>Profesionales</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="practicantes"
-        data-tooltip="Practicantes: se muestran como disponibles en la agenda pero no reciben asignaciones automáticas." data-tooltip-pos="right">
-        <span class="nav-icon">🎓</span>
-        <span>Practicantes</span>
-      </button>
-      <div class="nav-section-label admin-only">
-        <span class="nav-icon">📊</span>
-        <span>Estadísticas</span>
+      <div class="nav-group">
+        <button class="nav-btn nav-parent admin-only" data-vista="pacientes"
+          data-tooltip="Gestioná el padrón de pacientes: diagnóstico, prescripciones de terapias, bloqueos de horario y prioridad de asignación." data-tooltip-pos="right">
+          <span class="nav-icon">👥</span>
+          <span>Pacientes</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub admin-only" data-vista="banos"
+            data-tooltip="Configurá los horarios de baño semanales de cada paciente para que el algoritmo no les asigne sesiones en esos slots." data-tooltip-pos="right">
+            <span class="nav-icon">🛁</span>
+            <span>Horarios de Baño</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" data-vista="egresados"
+            data-tooltip="Pacientes que ya no forman parte de la agenda diaria. Podés reactivarlos en cualquier momento." data-tooltip-pos="right">
+            <span class="nav-icon">🎓</span>
+            <span>Egresados</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" data-vista="exclusiones"
+            data-tooltip="Configurá qué profesionales no atienden a qué pacientes. El algoritmo respeta estas exclusiones al asignar sesiones." data-tooltip-pos="right">
+            <span class="nav-icon">🚫</span>
+            <span>Exclusiones</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" data-vista="planes"
+            data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
+            <span class="nav-icon">📋</span>
+            <span>Planes semanales</span>
+          </button>
+        </div>
       </div>
-      <button class="nav-btn nav-sub admin-only" data-vista="metricas"
-        data-tooltip="Indicadores de calidad del scheduling: cobertura, distribución de carga entre profesionales e índices históricos." data-tooltip-pos="right">
-        <span class="nav-icon">📊</span>
-        <span>Métricas</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="historial"
-        data-tooltip="Registro de agendas generadas en días anteriores con su índice de calidad y alertas." data-tooltip-pos="right">
-        <span class="nav-icon">🕐</span>
-        <span>Historial</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" data-vista="auditoria"
-        data-tooltip="Log de todos los cambios manuales realizados sobre la agenda: movimientos, agregados y eliminaciones." data-tooltip-pos="right">
-        <span class="nav-icon">📝</span>
-        <span>Auditoría</span>
-      </button>
-      <div class="nav-section-label admin-only">
-        <span class="nav-icon">💾</span>
-        <span>Datos</span>
+      <div class="nav-group">
+        <button class="nav-btn nav-parent admin-only" data-vista="profesionales"
+          data-tooltip="Gestioná el padrón de profesionales: disciplinas, días laborales, horarios disponibles y cuota semanal máxima." data-tooltip-pos="right">
+          <span class="nav-icon">👨‍⚕️</span>
+          <span>Profesionales</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub admin-only" data-vista="practicantes"
+            data-tooltip="Practicantes: se muestran como disponibles en la agenda pero no reciben asignaciones automáticas." data-tooltip-pos="right">
+            <span class="nav-icon">🎓</span>
+            <span>Practicantes</span>
+          </button>
+        </div>
       </div>
-      <button class="nav-btn nav-sub admin-only" onclick="exportarJSON()"
-        data-tooltip="Descarga todos los datos como un archivo JSON para hacer backup." data-tooltip-pos="right">
-        <span class="nav-icon">⬇</span>
-        <span>Exportar</span>
-      </button>
-      <button class="nav-btn nav-sub admin-only" onclick="importarJSON()"
-        data-tooltip="Carga datos desde un archivo JSON exportado previamente. Reemplaza los datos actuales." data-tooltip-pos="right">
-        <span class="nav-icon">⬆</span>
-        <span>Importar</span>
-      </button>
-      <button class="nav-btn admin-only" data-vista="usuarios"
+      <div class="nav-group">
+        <button class="nav-btn nav-parent nav-section-label admin-only" type="button"
+          data-tooltip="Métricas, historial y auditoría." data-tooltip-pos="right">
+          <span class="nav-icon">📊</span>
+          <span>Estadísticas</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub admin-only" data-vista="metricas"
+            data-tooltip="Indicadores de calidad del scheduling: cobertura, distribución de carga entre profesionales e índices históricos." data-tooltip-pos="right">
+            <span class="nav-icon">📊</span>
+            <span>Métricas</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" data-vista="historial"
+            data-tooltip="Registro de agendas generadas en días anteriores con su índice de calidad y alertas." data-tooltip-pos="right">
+            <span class="nav-icon">🕐</span>
+            <span>Historial</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" data-vista="auditoria"
+            data-tooltip="Log de todos los cambios manuales realizados sobre la agenda: movimientos, agregados y eliminaciones." data-tooltip-pos="right">
+            <span class="nav-icon">📝</span>
+            <span>Auditoría</span>
+          </button>
+        </div>
+      </div>
+      <div class="nav-group">
+        <button class="nav-btn nav-parent nav-section-label admin-only" type="button"
+          data-tooltip="Importar y exportar datos." data-tooltip-pos="right">
+          <span class="nav-icon">💾</span>
+          <span>Datos</span>
+        </button>
+        <div class="nav-children">
+          <button class="nav-btn nav-sub admin-only" onclick="exportarJSON()"
+            data-tooltip="Descarga todos los datos como un archivo JSON para hacer backup." data-tooltip-pos="right">
+            <span class="nav-icon">⬇</span>
+            <span>Exportar</span>
+          </button>
+          <button class="nav-btn nav-sub admin-only" onclick="importarJSON()"
+            data-tooltip="Carga datos desde un archivo JSON exportado previamente. Reemplaza los datos actuales." data-tooltip-pos="right">
+            <span class="nav-icon">⬆</span>
+            <span>Importar</span>
+          </button>
+        </div>
+      </div>
+      <button class="nav-btn nav-parent admin-only" data-vista="usuarios"
         data-tooltip="Gestioná los usuarios de la app: aprobá accesos de profesionales y asignales su perfil." data-tooltip-pos="right">
         <span class="nav-icon">🔑</span>
         <span>Usuarios</span>

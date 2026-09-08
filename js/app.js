@@ -154,7 +154,13 @@ function navegarA(vista) {
     _sesionesRapidasCreadas = [];
   }
   vistaActiva = vista;
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.vista === vista));
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.vista === vista);
+    if (b.dataset.vista === vista) {
+      const grp = b.closest('.nav-group');
+      if (grp) grp.classList.add('open');
+    }
+  });
   renderVista();
   if (typeof actualizarVistaPresencia === 'function') actualizarVistaPresencia(vista);
   document.querySelector('.sidebar')?.classList.remove('mobile-open'); // cerrar el drawer en mobile al navegar
@@ -6406,6 +6412,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Navegación
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => { if (btn.dataset.vista) navegarA(btn.dataset.vista); });
+  });
+  // Colapsar/expandir grupos del menú al hacer click en el ítem padre
+  document.querySelectorAll('.nav-group').forEach(grp => {
+    const parent = grp.querySelector(':scope > .nav-parent');
+    if (parent) parent.addEventListener('click', () => grp.classList.toggle('open'));
   });
 
   // Sidebar en mobile: se abre/cierra por tap (no depende de :hover)
