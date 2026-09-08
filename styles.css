@@ -110,6 +110,22 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 }
 .nav-sub .nav-icon { font-size: 12px; }
 
+/* Encabezados de sección en el nav (no son botones navegables) */
+.nav-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sidebar-text-muted);
+  padding: 12px 12px 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
 /* Solo existe en mobile (ver @media más abajo) — herramienta pensada
    específicamente para cargar sesiones fijas desde el celular. */
 .nav-mobile-only { display: none; }
@@ -118,6 +134,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 
 /* Etiquetas de texto: se revelan al expandir */
 .nav-btn > span:not(.nav-icon),
+.nav-section-label,
 .sidebar-header h1,
 .sidebar-subtitle,
 .sidebar-footer,
@@ -127,12 +144,23 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
   transition: opacity 0.12s ease;
 }
 .sidebar:hover .nav-btn > span:not(.nav-icon),
+.sidebar:hover .nav-section-label,
 .sidebar:hover .sidebar-header h1,
 .sidebar:hover .sidebar-subtitle,
 .sidebar:hover .sidebar-footer,
 .sidebar:hover .sidebar-actions,
 .sidebar:hover .sidebar-persist {
   opacity: 1;
+}
+
+.sidebar-usuario-nombre {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-footer {
@@ -222,7 +250,8 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 /* Admin ve solo items admin */
 body.rol-admin .admin-only  { display: flex; }
 body.rol-admin .admin-only.sidebar-persist,
-body.rol-admin .admin-only.sidebar-actions { display: block; }
+body.rol-admin .admin-only.sidebar-actions,
+body.rol-admin .admin-only.nav-section-label { display: flex; }
 body.rol-admin .pro-only    { display: none; }
 /* Profesional ve solo items pro */
 body.rol-profesional .pro-only   { display: flex; }

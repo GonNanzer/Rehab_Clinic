@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sistema de Asignación de Terapias</title>
+  <title>Lista-Bianchi</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
   <aside class="sidebar">
     <button id="sidebar-toggle" class="sidebar-toggle-btn" aria-label="Abrir menú">☰</button>
     <div class="sidebar-header">
-      <h1>RehabClinic</h1>
+      <h1>Lista-Bianchi</h1>
       <div class="sidebar-subtitle">Asignación de terapias</div>
     </div>
 
@@ -77,6 +77,11 @@
         <span class="nav-icon">🚫</span>
         <span>Exclusiones</span>
       </button>
+      <button class="nav-btn nav-sub admin-only" data-vista="planes"
+        data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
+        <span class="nav-icon">📋</span>
+        <span>Planes semanales</span>
+      </button>
       <button class="nav-btn admin-only" data-vista="profesionales"
         data-tooltip="Gestioná el padrón de profesionales: disciplinas, días laborales, horarios disponibles y cuota semanal máxima." data-tooltip-pos="right">
         <span class="nav-icon">👨‍⚕️</span>
@@ -87,25 +92,38 @@
         <span class="nav-icon">🎓</span>
         <span>Practicantes</span>
       </button>
-      <button class="nav-btn admin-only" data-vista="planes"
-        data-tooltip="Resumen semanal de cobertura de terapias por paciente: cuántas horas se asignaron vs. las prescriptas." data-tooltip-pos="right">
-        <span class="nav-icon">📋</span>
-        <span>Planes semanales</span>
-      </button>
-      <button class="nav-btn admin-only" data-vista="metricas"
+      <div class="nav-section-label admin-only">
+        <span class="nav-icon">📊</span>
+        <span>Estadísticas</span>
+      </div>
+      <button class="nav-btn nav-sub admin-only" data-vista="metricas"
         data-tooltip="Indicadores de calidad del scheduling: cobertura, distribución de carga entre profesionales e índices históricos." data-tooltip-pos="right">
         <span class="nav-icon">📊</span>
         <span>Métricas</span>
       </button>
-      <button class="nav-btn admin-only" data-vista="historial"
+      <button class="nav-btn nav-sub admin-only" data-vista="historial"
         data-tooltip="Registro de agendas generadas en días anteriores con su índice de calidad y alertas." data-tooltip-pos="right">
         <span class="nav-icon">🕐</span>
         <span>Historial</span>
       </button>
-      <button class="nav-btn admin-only" data-vista="auditoria"
+      <button class="nav-btn nav-sub admin-only" data-vista="auditoria"
         data-tooltip="Log de todos los cambios manuales realizados sobre la agenda: movimientos, agregados y eliminaciones." data-tooltip-pos="right">
         <span class="nav-icon">📝</span>
         <span>Auditoría</span>
+      </button>
+      <div class="nav-section-label admin-only">
+        <span class="nav-icon">💾</span>
+        <span>Datos</span>
+      </div>
+      <button class="nav-btn nav-sub admin-only" onclick="exportarJSON()"
+        data-tooltip="Descarga todos los datos como un archivo JSON para hacer backup." data-tooltip-pos="right">
+        <span class="nav-icon">⬇</span>
+        <span>Exportar</span>
+      </button>
+      <button class="nav-btn nav-sub admin-only" onclick="importarJSON()"
+        data-tooltip="Carga datos desde un archivo JSON exportado previamente. Reemplaza los datos actuales." data-tooltip-pos="right">
+        <span class="nav-icon">⬆</span>
+        <span>Importar</span>
       </button>
       <button class="nav-btn admin-only" data-vista="usuarios"
         data-tooltip="Gestioná los usuarios de la app: aprobá accesos de profesionales y asignales su perfil." data-tooltip-pos="right">
@@ -114,37 +132,6 @@
       </button>
     </nav>
 
-    <div class="sidebar-actions admin-only">
-      <button class="btn btn-secondary" id="btn-datos-ejemplo" style="font-size:11px"
-        data-tooltip="Carga pacientes y profesionales de muestra para explorar la aplicación sin necesidad de ingresar datos reales." data-tooltip-pos="right">
-        🗄 Datos de ejemplo
-      </button>
-    </div>
-
-    <!-- ── Panel de persistencia ──────────────────────────────────────── -->
-    <div class="sidebar-persist admin-only">
-      <div class="persist-titulo">Archivo de datos</div>
-      <div id="pers-status" class="pers-status">
-        <span class="pers-dot dot-neutral"></span> Solo en memoria local
-      </div>
-      <div class="persist-botones">
-        <button class="btn btn-sm btn-secondary persist-btn"
-          onclick="exportarJSON()"
-          data-tooltip="Descarga todos los datos (pacientes, profesionales, agendas) como un archivo JSON para hacer backup." data-tooltip-pos="right">
-          ⬇ Exportar
-        </button>
-        <button class="btn btn-sm btn-secondary persist-btn"
-          onclick="importarJSON()"
-          data-tooltip="Carga datos desde un archivo JSON exportado previamente. Reemplaza los datos actuales." data-tooltip-pos="right">
-          ⬆ Importar
-        </button>
-        <button class="btn btn-sm btn-secondary persist-btn"
-          id="btn-vincular-archivo"
-          data-tooltip="Vincula un archivo local para que los datos se guarden automáticamente al hacer cambios. Solo Chrome y Edge." data-tooltip-pos="right">
-          🔗 Vincular archivo
-        </button>
-      </div>
-    </div>
 
     <!-- ── Panel de presencia (usuarios conectados) ──────────────────────── -->
     <div class="sidebar-presencia">
@@ -153,7 +140,11 @@
     </div>
 
     <div class="sidebar-footer">
+      <div id="sidebar-usuario-nombre" class="sidebar-usuario-nombre"></div>
       <div id="sidebar-fecha"></div>
+      <div id="pers-status" class="pers-status" style="margin-top:4px;">
+        <span class="pers-dot dot-neutral"></span> Solo en memoria local
+      </div>
       <button class="btn btn-sm btn-secondary" id="btn-cerrar-sesion" style="margin-top:8px;width:100%;">
         Cerrar sesión
       </button>

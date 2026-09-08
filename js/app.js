@@ -4034,6 +4034,7 @@ function abrirFormProf(prof) {
       </label>
     </fieldset>
     <div class="modal-footer">
+      ${!esNuevo ? `<button class="btn btn-secondary" style="margin-right:auto" onclick="verPacientesExcluidosDeProf('${prof.id}')">Ver pacientes excluidos</button>` : ''}
       <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="guardarProf('${prof?.id||''}')">
         ${esNuevo ? 'Crear' : 'Guardar'}
@@ -4140,6 +4141,19 @@ function moverGrupoPref(idx, dir) {
   if (nuevo < 0 || nuevo >= arr.length) return;
   [arr[idx], arr[nuevo]] = [arr[nuevo], arr[idx]];
   _refreshGruposPrefEditor();
+}
+
+function verPacientesExcluidosDeProf(profId) {
+  const prof = Profesionales.todos().find(p => p.id === profId);
+  const nombreProf = prof ? `${prof.nombre} ${prof.apellido}` : 'este profesional';
+  const excluidos = Pacientes.todos().filter(p => (p.exclusionesProfesionales || []).includes(profId));
+  const listaHtml = excluidos.length === 0
+    ? '<p class="empty-state" style="padding:16px 0">No hay pacientes excluidos de este profesional.</p>'
+    : `<ul style="padding-left:20px;line-height:2">${excluidos.map(p => `<li>${p.nombre} ${p.apellido}</li>`).join('')}</ul>`;
+  const html = `<div class="modal-header"><h2>Pacientes excluidos — ${nombreProf}</h2></div>
+    <div class="modal-body">${listaHtml}</div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="cerrarModal()">Cerrar</button></div>`;
+  abrirModal(html);
 }
 
 function guardarProf(id) {
@@ -6383,13 +6397,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Migración: slotIngreso/slotEgreso → horarioAmbulatorioPorDia
   migrarHorarioAmbulatorio();
 
-  // Fecha en sidebar
+  // Fecha y usuario en sidebar
   document.getElementById('sidebar-fecha').textContent =
     new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const _nombreEl = document.getElementById('sidebar-usuario-nombre');
+  if (_nombreEl && usuarioActual?.nombre) _nombreEl.textContent = usuarioActual.nombre;
 
   // Navegación
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => navegarA(btn.dataset.vista));
+    btn.addEventListener('click', () => { if (btn.dataset.vista) navegarA(btn.dataset.vista); });
   });
 
   // Sidebar en mobile: se abre/cierra por tap (no depende de :hover)
@@ -6403,12 +6419,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Modal: cerrar al hacer click fuera
   document.getElementById('modal-overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modal-overlay')) cerrarModal();
-  });
-
-  // Datos de ejemplo (botón en sidebar)
-  document.getElementById('btn-datos-ejemplo')?.addEventListener('click', () => {
-    cargarDatosEjemplo();
-    renderVista();
   });
 
   // Cerrar sesión (botón en sidebar)
