@@ -136,7 +136,7 @@ function _idsProfsPresentes(estado, fecha) {
 }
 
 const _VISTAS_ADMIN = new Set(['grilla','lista-prof','disponibilidad','pacientes','banos','egresados',
-  'profesionales','practicantes','planes','metricas','historial','auditoria','sesionRapida','usuarios']);
+  'exclusiones','profesionales','practicantes','planes','metricas','historial','auditoria','sesionRapida','usuarios']);
 const _VISTAS_PRO   = new Set(['mi-agenda','mi-disponibilidad','mi-perfil']);
 
 function navegarA(vista) {
