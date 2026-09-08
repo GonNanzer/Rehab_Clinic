@@ -113,17 +113,20 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 /* Nav groups: colapsan/expanden sus hijos */
 .nav-group { }
 .nav-children { display: none; }
+.nav-group:hover > .nav-children,
 .nav-group.open > .nav-children { display: block; }
 
 /* Ítem padre: negrita + caret indicador */
 .nav-parent { font-weight: 600; }
-.nav-parent::after {
+.nav-group > .nav-parent::after {
   content: '›';
   margin-left: auto;
   font-size: 13px;
   display: inline-block;
+  transform: rotate(0deg);
   transition: transform 0.18s ease, opacity 0.12s ease;
 }
+.nav-group:hover > .nav-parent::after,
 .nav-group.open > .nav-parent::after { transform: rotate(90deg); }
 
 /* Encabezados de sección no navegables (Estadísticas, Datos) */
