@@ -1087,6 +1087,7 @@ function generarAgendaSlotPorSlot(fecha) {
         );
         let bestProf = null, bestScore = -Infinity;
         for (const prof of profsDisponibles) {
+          if ((pac.exclusionesProfesionales || []).includes(prof.id)) continue;
           if (discElegidaAlm && !(prof.disciplinas || []).includes(discElegidaAlm)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
@@ -1119,6 +1120,7 @@ function generarAgendaSlotPorSlot(fecha) {
         );
         let bestProf = null, bestScore = -Infinity;
         for (const prof of profsDisponibles) {
+          if ((pac.exclusionesProfesionales || []).includes(prof.id)) continue;
           if (discElegidaHig && !(prof.disciplinas || []).includes(discElegidaHig)) continue;
           if (profSlotsHoy[prof.id][slot.id]) continue;
           if (!_profDisponibleEnSlot(prof, slot)) continue;
@@ -1159,6 +1161,7 @@ function generarAgendaSlotPorSlot(fecha) {
           if (patientSlots[pac.id][slot.id]) return false;
           if (_generaConsecutividad(pac.id, disc, slotIdx, sesiones)) return false;
           if (prof.grupoExclusivo && pac.grupo !== prof.grupoExclusivo) return false;
+          if ((pac.exclusionesProfesionales || []).includes(prof.id)) return false;
           if (isKtrDual) {
             if (pac.bloqueaKTR) return false;
             const sesExist = sesiones.find(s => s.id === profSlotsHoy[prof.id][slot.id]);
@@ -1377,8 +1380,9 @@ function mejoraLocal(fecha) {
             // ¿El slot bloqueado por esta sesión está disponible para nuestro paciente?
             if (patientSlots[pac.id]?.[sesObstáculo.slotId]) continue;
 
-            // El prof debe poder atender a pac en el slot liberado (grupoExclusivo)
+            // El prof debe poder atender a pac en el slot liberado (grupoExclusivo, exclusiones)
             if (prof.grupoExclusivo && pac.grupo !== prof.grupoExclusivo) continue;
+            if ((pac.exclusionesProfesionales || []).includes(prof.id)) continue;
 
             // El prof debe estar presente en el turno del slot liberado
             const slotLiberadoDef = SLOTS.find(s => s.id === sesObstáculo.slotId);
