@@ -629,7 +629,7 @@ function generarAgenda(fecha, opciones = {}) {
   const todosPacientes = Pacientes.activos();
   const idsExcluidos  = estado.profesionalesExcluidos  || [];
   const profsDisponibles = Profesionales.todos()
-    .filter(p => p.activo !== false && !p.esPracticante && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
+    .filter(p => p.activo !== false && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
 
   const semana = limitesDeSemana(fecha);
 
@@ -916,7 +916,7 @@ function generarAgendaSlotPorSlot(fecha) {
   const todosPacientes = Pacientes.activos();
   const idsExcluidos   = estado.profesionalesExcluidos  || [];
   const profsDisponibles = Profesionales.todos()
-    .filter(p => p.activo !== false && !p.esPracticante && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
+    .filter(p => p.activo !== false && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
 
   const semana    = limitesDeSemana(fecha);
   const diaActual = _weekday(fecha);
@@ -1233,7 +1233,7 @@ function mejoraLocal(fecha) {
   const estado    = DiasState.delDia(fecha);
   const idsExcluidos = estado.profesionalesExcluidos  || [];
   const profsDisponibles = Profesionales.todos()
-    .filter(p => p.activo !== false && !p.esPracticante && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
+    .filter(p => p.activo !== false && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
   const todosPacientes = Pacientes.activos();
   const semana = limitesDeSemana(fecha);
 
@@ -1591,7 +1591,7 @@ function _profsDisponiblesDelDia(fecha) {
   const estado = DiasState.delDia(fecha);
   const idsExcluidos = estado.profesionalesExcluidos || [];
   return Profesionales.todos()
-    .filter(p => p.activo !== false && !p.esPracticante && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
+    .filter(p => p.activo !== false && _getPresencia(estado, p.id, fecha) && !idsExcluidos.includes(p.id));
 }
 
 // Detecta huecos rellenables: pacientes que ya tienen agenda ese día, con

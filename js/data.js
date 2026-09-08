@@ -260,7 +260,7 @@ const Profesionales = {
       disciplinas: [],
       gruposPreferencia: [],  // array ordenado de mayor a menor prioridad: ['tec','acv',...]
       grupoExclusivo: null,   // 'tec'|'acv'|'medular'|null — si != null, solo atiende ese grupo
-      esPracticante: false,   // no se asigna automáticamente; visible en agenda como disponible
+      esPracticante: false,
       diasLaborales: [],      // días que trabaja habitualmente: [1,2,3,4,5] (1=Lun … 6=Sáb)
       horariosPorDia: {},     // { dia: ['slot_09','slot_10',...] } — slots que asiste en cada día
       esCoordinador: false,   // deja al menos 1 slot libre por semana
