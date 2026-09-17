@@ -399,6 +399,10 @@ const DiasState = {
     return this.guardar(fecha, estado);
   },
 
+  setPacientesPrioritarios(fecha, ids) {
+    return this.guardar(fecha, { pacientesPrioritariosHoy: ids });
+  },
+
   setDerivado(fecha, pacienteId, derivado) {
     const estado = this.delDia(fecha);
     const lista = new Set(estado.pacientesDerivados || []);

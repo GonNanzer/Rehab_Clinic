@@ -698,15 +698,18 @@ function generarAgenda(fecha, opciones = {}) {
   const sesiones = [...sesionesFijas];
   const alertas = [];
 
-  // Ordenar pacientes: ambulatorios primero (garantizar que llenan todos sus slots),
-  // luego el resto por prioridad de transferencias.
+  // Ordenar pacientes: prioritarios del día primero (en el orden declarado),
+  // luego ambulatorios, luego el resto; dentro de cada grupo por scorePrioridad.
   const pacientesOrdenados = ordenOverride
     ? ordenOverride
     : (() => {
         const sort = (arr) => [...arr].sort((a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a));
-        const ambul = todosPacientes.filter(p => p.esAmbulatorio);
-        const resto = todosPacientes.filter(p => !p.esAmbulatorio);
-        return [...sort(ambul), ...sort(resto)];
+        const idsPrioHoy = estado.pacientesPrioritariosHoy || [];
+        const prioHoy = idsPrioHoy.map(id => todosPacientes.find(p => p.id === id)).filter(Boolean);
+        const idsPrioSet = new Set(idsPrioHoy);
+        const ambul = todosPacientes.filter(p => p.esAmbulatorio && !idsPrioSet.has(p.id));
+        const resto = todosPacientes.filter(p => !p.esAmbulatorio && !idsPrioSet.has(p.id));
+        return [...prioHoy, ...sort(ambul), ...sort(resto)];
       })();
 
   const diaActual = _weekday(fecha);

@@ -4435,6 +4435,7 @@ function vistaDisponibilidad() {
   const tieneHorarios = profs.some(p => (p.diasLaborales||[]).length > 0);
 
   const derivados = (estadoGuardado || DiasState.delDia(fechaActiva)).pacientesDerivados || [];
+  const pacientesPrioritariosHoy = (estadoGuardado || DiasState.delDia(fechaActiva)).pacientesPrioritariosHoy || [];
   const derivadosLabels = derivados.map(id => {
     const p = Pacientes.porId(id);
     return p ? esc(p.apellido) + ', ' + esc(p.nombre) : id;
@@ -4647,10 +4648,69 @@ function vistaDisponibilidad() {
           <button class="btn btn-secondary mt-4" id="btn-add-prescripcion">+ Agregar asignación necesaria</button>
         </div>
       </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <strong>Priorizar pacientes</strong>
+          <span class="text-muted" style="font-size:12px">Solo para hoy · máx. 5</span>
+        </div>
+        <div class="card-body">
+          <div class="text-muted" style="margin-bottom:10px;font-size:12px">
+            Estos pacientes serán asignados antes que los demás, sin importar su prioridad de perfil.
+          </div>
+          <div id="lista-prioritarios-hoy">
+            ${pacientesPrioritariosHoy.length === 0
+              ? '<em class="text-muted" style="font-size:12px">Sin pacientes priorizados para hoy.</em>'
+              : pacientesPrioritariosHoy.map((id, i) => {
+                  const pp = Pacientes.porId(id);
+                  const label = pp ? esc(pp.apellido + ', ' + pp.nombre) : id;
+                  return `<div class="prioritario-item">
+                    <span>${label}</span>
+                    <div style="display:flex;gap:4px;align-items:center">
+                      ${i > 0 ? `<button class="gpref-btn" onclick="moverPrioritario(${i},-1)">↑</button>` : '<span class="gpref-btn-ph"></span>'}
+                      ${i < pacientesPrioritariosHoy.length - 1 ? `<button class="gpref-btn" onclick="moverPrioritario(${i},1)">↓</button>` : '<span class="gpref-btn-ph"></span>'}
+                      <button class="btn btn-sm btn-danger" style="padding:2px 6px" onclick="quitarPrioritario(${i})">✕</button>
+                    </div>
+                  </div>`;
+                }).join('')
+            }
+          </div>
+          ${pacientesPrioritariosHoy.length < 5 ? `
+          <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+            <select id="sel-prioritario" class="select-field" style="flex:1">
+              <option value="">— elegir paciente —</option>
+              ${pacientes
+                .filter(p => !pacientesPrioritariosHoy.includes(p.id))
+                .sort((a, b) => a.apellido.localeCompare(b.apellido))
+                .map(p => `<option value="${p.id}">${esc(p.apellido)}, ${esc(p.nombre)}</option>`)
+                .join('')}
+            </select>
+            <button class="btn btn-secondary btn-sm" id="btn-add-prioritario">Agregar</button>
+          </div>` : `<p class="text-muted" style="font-size:12px;margin-top:8px">Lista completa (5/5).</p>`}
+        </div>
+      </div>
     </div>
   </div>`;
 
   return html;
+}
+
+function moverPrioritario(idx, dir) {
+  const estado = DiasState.delDia(fechaActiva);
+  const lista = [...(estado.pacientesPrioritariosHoy || [])];
+  const dest = idx + dir;
+  if (dest < 0 || dest >= lista.length) return;
+  [lista[idx], lista[dest]] = [lista[dest], lista[idx]];
+  DiasState.setPacientesPrioritarios(fechaActiva, lista);
+  renderVista();
+}
+
+function quitarPrioritario(idx) {
+  const estado = DiasState.delDia(fechaActiva);
+  const lista = [...(estado.pacientesPrioritariosHoy || [])];
+  lista.splice(idx, 1);
+  DiasState.setPacientesPrioritarios(fechaActiva, lista);
+  renderVista();
 }
 
 function bindDisponibilidad() {
@@ -4774,6 +4834,17 @@ function bindDisponibilidad() {
 
   document.getElementById('btn-derivar-pac')?.addEventListener('click', () => {
     marcarDerivado(pacSeleccionadoDisp);
+  });
+
+  document.getElementById('btn-add-prioritario')?.addEventListener('click', () => {
+    const id = document.getElementById('sel-prioritario')?.value;
+    if (!id) return;
+    const estado = DiasState.delDia(fechaActiva);
+    const lista = [...(estado.pacientesPrioritariosHoy || [])];
+    if (lista.includes(id) || lista.length >= 5) return;
+    lista.push(id);
+    DiasState.setPacientesPrioritarios(fechaActiva, lista);
+    renderVista();
   });
 
   // Bloqueos de profesional
