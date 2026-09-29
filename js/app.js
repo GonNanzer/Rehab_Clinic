@@ -2881,7 +2881,10 @@ function vistaBanos() {
 
   const header = `<div class="vista-header">
     <div class="vista-header-left"><h2>Horarios de Baño</h2></div>
-    <div class="vista-header-right">${layoutToggle}</div>
+    <div class="vista-header-right" style="display:flex;gap:8px;align-items:center">
+      ${layoutToggle}
+      <button class="btn btn-danger btn-sm" onclick="borrarTodosLosBanos()">Borrar todos</button>
+    </div>
   </div>`;
 
   if (pacientes.length === 0) {
@@ -2889,6 +2892,15 @@ function vistaBanos() {
   }
 
   return header + (banosLayout === 'grilla' ? _banosVistaGrilla() : _banosVistaPorPaciente(pacientes));
+}
+
+function borrarTodosLosBanos() {
+  const pacientes = Pacientes.activos().filter(p => (p.bañosSemana || []).length > 0);
+  if (pacientes.length === 0) { alert('No hay horarios de baño cargados.'); return; }
+  if (!confirm(`¿Borrar los horarios de baño de los ${pacientes.length} paciente${pacientes.length !== 1 ? 's' : ''} que tienen datos?`)) return;
+  pacientes.forEach(p => Pacientes.actualizar(p.id, { bañosSemana: [], bañosSemanaFecha: null }));
+  _banoGridState = null;
+  renderVista();
 }
 
 function setBanosLayout(modo) {
