@@ -165,6 +165,8 @@ function navegarA(vista) {
   renderVista();
   if (typeof actualizarVistaPresencia === 'function') actualizarVistaPresencia(vista);
   document.querySelector('.sidebar')?.classList.remove('mobile-open'); // cerrar el drawer en mobile al navegar
+  document.body.style.overflow = '';
+  document.getElementById('sidebar-toggle')?.setAttribute('aria-expanded', 'false');
 }
 
 function renderVista() {
@@ -6504,12 +6506,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Sidebar en mobile: se abre/cierra por tap (no depende de :hover)
+  const _setDrawer = abierto => {
+    document.querySelector('.sidebar')?.classList.toggle('mobile-open', abierto);
+    document.body.style.overflow = abierto ? 'hidden' : '';
+    document.getElementById('sidebar-toggle')?.setAttribute('aria-expanded', String(abierto));
+  };
   document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
-    document.querySelector('.sidebar')?.classList.toggle('mobile-open');
+    _setDrawer(!document.querySelector('.sidebar')?.classList.contains('mobile-open'));
   });
-  document.getElementById('sidebar-backdrop')?.addEventListener('click', () => {
-    document.querySelector('.sidebar')?.classList.remove('mobile-open');
-  });
+  document.getElementById('sidebar-backdrop')?.addEventListener('click', () => _setDrawer(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _setDrawer(false); });
+  // Al pasar a desktop (rotar / redimensionar) se cierra el cajón
+  window.matchMedia('(min-width: 769px)').addEventListener('change', e => { if (e.matches) _setDrawer(false); });
 
   // Modal: cerrar al hacer click fuera
   document.getElementById('modal-overlay').addEventListener('click', e => {

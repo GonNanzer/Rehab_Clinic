@@ -62,11 +62,12 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 
 /* Botón hamburguesa: solo existe para mobile (ver media query), en desktop
    el sidebar se expande con :hover y este botón no hace falta. */
+.mobile-topbar { display: none; }
 .sidebar-toggle-btn {
   display: none;
-  width: 40px;
-  height: 40px;
-  margin: 8px auto 4px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
   border: none;
   border-radius: 6px;
   background: none;
@@ -1822,7 +1823,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
 /* ── Impresión ───────────────────────────────────────────────────────────────── */
 @media print {
-  .sidebar, .vista-header-right, .btn, #modal-overlay { display: none !important; }
+  .sidebar, .mobile-topbar, .vista-header-right, .btn, #modal-overlay { display: none !important; }
   #app { display: block; }
   .main-content { overflow: visible; }
   #vista { padding: 12px; }
@@ -2671,33 +2672,57 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
 /* ── Responsive básico ──────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .sidebar { width: 56px; min-width: 56px; }
-  .sidebar:hover { width: 56px; box-shadow: none; } /* el hover de mouse no aplica en touch; se ignora */
-  .sidebar-header, .sidebar-subtitle, .nav-btn span:not(.nav-icon), .sidebar-footer { display: none; }
-  .nav-btn { justify-content: center; padding: 10px; }
-  .sidebar-toggle-btn { display: flex; align-items: center; justify-content: center; }
-  .nav-mobile-only { display: flex; }
-  .sidebar.mobile-open .nav-mobile-only span:not(.nav-icon) { display: block; }
+  /* Layout: barra superior + contenido a todo el ancho */
+  #app { flex-direction: column; height: 100vh; height: 100dvh; }
+  .main-content { margin-left: 0; flex: 1; min-height: 0; }
+  #vista { padding: 14px; }
 
-  /* Sidebar como drawer: se abre por tap (clase .mobile-open desde app.js),
-     no por :hover, que no existe en touch. */
+  .mobile-topbar {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0; height: 52px; padding: 0 8px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    z-index: 100;
+  }
+  .mobile-topbar-title { color: #f8fafc; font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+  .sidebar-toggle-btn { display: flex; align-items: center; justify-content: center; }
+
+  /* Sidebar como cajón off-canvas: se abre por tap (clase .mobile-open desde
+     app.js), no por :hover, que no existe en touch. Todo el contenido se
+     muestra completo y los submenús quedan siempre desplegados. */
+  .sidebar,
+  .sidebar:hover {
+    width: min(84vw, 300px);
+    height: 100vh; height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+    visibility: hidden;
+    z-index: 300;
+  }
   .sidebar.mobile-open {
-    width: min(78vw, 260px);
+    transform: none;
+    visibility: visible;
     box-shadow: 6px 0 24px rgba(0,0,0,0.35);
   }
-  .sidebar.mobile-open .sidebar-header,
-  .sidebar.mobile-open .sidebar-subtitle,
-  .sidebar.mobile-open .nav-btn span:not(.nav-icon),
-  .sidebar.mobile-open .sidebar-footer { display: block; }
-  .sidebar.mobile-open .nav-btn { justify-content: flex-start; padding: 9px 12px; }
-  .sidebar.mobile-open .sidebar-header,
-  .sidebar.mobile-open .sidebar-subtitle,
-  .sidebar.mobile-open .nav-btn > span:not(.nav-icon),
-  .sidebar.mobile-open .sidebar-footer,
-  .sidebar.mobile-open .sidebar-actions,
-  .sidebar.mobile-open .sidebar-persist,
-  .sidebar.mobile-open .sidebar-presencia { opacity: 1; }
+  .sidebar .nav-btn > span:not(.nav-icon),
+  .sidebar .sidebar-header h1,
+  .sidebar .sidebar-subtitle,
+  .sidebar .sidebar-footer,
+  .sidebar .sidebar-actions,
+  .sidebar .sidebar-persist { opacity: 1; }
 
+  .sidebar-header { padding-top: calc(16px + env(safe-area-inset-top)); }
+  .sidebar-nav { padding: 8px; }
+  .nav-btn { min-height: 44px; font-size: 14px; }
+  .nav-sub { min-height: 40px; font-size: 13px; padding: 8px 12px 8px 28px; }
+  .nav-section-label { cursor: default; }
+  .nav-children { display: block; }
+  .nav-group > .nav-parent::after { display: none; }
+  .nav-mobile-only { display: flex; }
+  .sidebar-footer { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+
+  #sidebar-backdrop { z-index: 250; }
   .sidebar.mobile-open ~ #sidebar-backdrop { display: block; }
 
   .disp-grid { grid-template-columns: 1fr; }
@@ -2765,6 +2790,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
    Aparece tras 1 segundo de hover. Se posiciona vía JS (position: fixed)
    para escapar de contenedores con overflow:hidden.
    ─────────────────────────────────────────────────────────────────────────── */
+@media (hover: none) { .app-tooltip { display: none !important; } }
 .app-tooltip {
   position: fixed;
   z-index: 99999;
