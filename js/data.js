@@ -48,6 +48,7 @@ function escribirStorage(clave, valor) {
 
   if (typeof onDataChanged === 'function') onDataChanged();
 
+  if (!_puedeSincronizar(campo)) return true; // solo cache local (ver permisos_profesionales.sql)
   _sincronizarConSupabase(campo, valor).catch(err =>
     console.error(`Error sincronizando "${campo}" con Supabase:`, err));
 
@@ -58,6 +59,16 @@ function escribirStorage(clave, valor) {
 // Cada colección se guarda como filas { clave, data-jsonb } en su tabla.
 // Al escribir se hace upsert de lo vigente y se borra lo que ya no está en el
 // array/objeto local (equivalente a "reemplazar la colección completa").
+
+// Qué colecciones puede escribir cada rol (espeja las políticas RLS de Supabase).
+// admin: todas · admin_area: sesiones y auditoría · profesional: ninguna (usa RPC
+// para sus avisos y su perfil). Sin usuario (viewer, migración): sin restricción.
+function _puedeSincronizar(campo) {
+  const rol = (typeof usuarioActual !== 'undefined' && usuarioActual) ? usuarioActual.rol : null;
+  if (!rol || rol === 'admin') return true;
+  if (rol === 'admin_area') return campo === 'asignaciones' || campo === 'auditoria';
+  return false;
+}
 
 const _SUPA_MAP = {
   pacientes:     { table: 'pacientes',     tipo: 'array-id' },

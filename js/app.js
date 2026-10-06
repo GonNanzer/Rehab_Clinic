@@ -4049,34 +4049,7 @@ function abrirFormProf(prof) {
     </div>
     <div class="form-group">
       <label>Días laborales y horario de asistencia</label>
-      <div class="asist-grid" id="prof-horarios-grid">
-        <div class="asist-header-row">
-          <div class="asist-dia-col"></div>
-          ${[8,9,10,11,12,14,15,16,17,18].map(h =>
-            `<div class="asist-h-label">${String(h).padStart(2,'0')}</div>`
-          ).join('')}
-        </div>
-        ${[['1','Lun'],['2','Mar'],['3','Mié'],['4','Jue'],['5','Vie'],['6','Sáb']].map(([v, lbl]) => {
-          const diaNum   = Number(v);
-          const activo   = (prof?.diasLaborales||[]).includes(diaNum);
-          const guardados = ((prof?.horariosPorDia || {})[diaNum] || []).filter(sid => sid !== 'slot_13');
-          return `<div class="asist-row">
-            <label class="asist-dia-label">
-              <input type="checkbox" class="asist-dia-chk" name="prof_dia" value="${v}" ${activo ? 'checked' : ''}>
-              <span class="asist-dia-name">${lbl}</span>
-            </label>
-            ${[8,9,10,11,12,14,15,16,17,18].map(h => {
-              const sid = `slot_${String(h).padStart(2,'0')}`;
-              const chk = activo && (guardados.length === 0 || guardados.includes(sid));
-              return `<label class="asist-hora-cell${activo ? '' : ' asist-off'}">
-                <input type="checkbox" name="phg_slot_${v}" value="${sid}"
-                  ${chk ? 'checked' : ''} ${activo ? '' : 'disabled'}>
-                <span class="asist-hora-lbl">${String(h).padStart(2,'0')}</span>
-              </label>`;
-            }).join('')}
-          </div>`;
-        }).join('')}
-      </div>
+      ${_gridHorariosHtml(prof)}
       <span class="text-muted" style="font-size:11px;margin-top:4px;display:block">
         Marcá el día para activarlo; luego seleccioná las horas exactas en que el profesional está presente.
         Si marcás el día sin seleccionar horas, se considera disponible en todos los turnos de terapia.
@@ -4103,40 +4076,7 @@ function abrirFormProf(prof) {
   </div>`;
   abrirModal(html);
 
-  // Día activado/desactivado → habilitar o deshabilitar sus celdas de hora
-  document.querySelectorAll('.asist-dia-chk').forEach(chk => {
-    chk.addEventListener('change', e => {
-      const v      = e.target.value;
-      const activo = e.target.checked;
-      const row    = e.target.closest('.asist-row');
-      row.querySelectorAll('.asist-hora-cell').forEach(cell => {
-        const input = cell.querySelector('input');
-        cell.classList.toggle('asist-off', !activo);
-        input.disabled = !activo;
-        if (activo) input.checked = true;  // marcar todo el día por defecto
-      });
-    });
-  });
-
-  // Hora marcada/desmarcada → sincronizar estado del día automáticamente
-  document.getElementById('prof-horarios-grid').addEventListener('change', e => {
-    const input = e.target;
-    if (!input.name?.startsWith('phg_slot_')) return;
-    const v      = input.name.replace('phg_slot_', '');
-    const diaChk = document.querySelector(`.asist-dia-chk[value="${v}"]`);
-    const row    = input.closest('.asist-row');
-    if (!diaChk || !row) return;
-    const alguno = [...row.querySelectorAll(`input[name="phg_slot_${v}"]`)].some(i => i.checked);
-    if (alguno && !diaChk.checked) {
-      diaChk.checked = true;
-      row.querySelectorAll('.asist-hora-cell').forEach(c => {
-        c.classList.remove('asist-off');
-        c.querySelector('input').disabled = false;
-      });
-    } else if (!alguno && diaChk.checked) {
-      diaChk.checked = false;
-    }
-  });
+  _bindGridHorarios();
 }
 
 function _renderGruposPrefEditor() {
@@ -4203,6 +4143,88 @@ function moverGrupoPref(idx, dir) {
   _refreshGruposPrefEditor();
 }
 
+// ─── Grilla de días y horas de asistencia (admin: Profesionales · profesional: Mi perfil) ───
+
+function _gridHorariosHtml(prof) {
+  return `
+      <div class="asist-grid" id="prof-horarios-grid">
+        <div class="asist-header-row">
+          <div class="asist-dia-col"></div>
+          ${[8,9,10,11,12,14,15,16,17,18].map(h =>
+            `<div class="asist-h-label">${String(h).padStart(2,'0')}</div>`
+          ).join('')}
+        </div>
+        ${[['1','Lun'],['2','Mar'],['3','Mié'],['4','Jue'],['5','Vie'],['6','Sáb']].map(([v, lbl]) => {
+          const diaNum   = Number(v);
+          const activo   = (prof?.diasLaborales||[]).includes(diaNum);
+          const guardados = ((prof?.horariosPorDia || {})[diaNum] || []).filter(sid => sid !== 'slot_13');
+          return `<div class="asist-row">
+            <label class="asist-dia-label">
+              <input type="checkbox" class="asist-dia-chk" name="prof_dia" value="${v}" ${activo ? 'checked' : ''}>
+              <span class="asist-dia-name">${lbl}</span>
+            </label>
+            ${[8,9,10,11,12,14,15,16,17,18].map(h => {
+              const sid = `slot_${String(h).padStart(2,'0')}`;
+              const chk = activo && (guardados.length === 0 || guardados.includes(sid));
+              return `<label class="asist-hora-cell${activo ? '' : ' asist-off'}">
+                <input type="checkbox" name="phg_slot_${v}" value="${sid}"
+                  ${chk ? 'checked' : ''} ${activo ? '' : 'disabled'}>
+                <span class="asist-hora-lbl">${String(h).padStart(2,'0')}</span>
+              </label>`;
+            }).join('')}
+          </div>`;
+        }).join('')}
+      </div>
+  `;
+}
+
+function _bindGridHorarios() {
+  // Día activado/desactivado → habilitar o deshabilitar sus celdas de hora
+  document.querySelectorAll('.asist-dia-chk').forEach(chk => {
+    chk.addEventListener('change', e => {
+      const v      = e.target.value;
+      const activo = e.target.checked;
+      const row    = e.target.closest('.asist-row');
+      row.querySelectorAll('.asist-hora-cell').forEach(cell => {
+        const input = cell.querySelector('input');
+        cell.classList.toggle('asist-off', !activo);
+        input.disabled = !activo;
+        if (activo) input.checked = true;  // marcar todo el día por defecto
+      });
+    });
+  });
+
+  // Hora marcada/desmarcada → sincronizar estado del día automáticamente
+  document.getElementById('prof-horarios-grid')?.addEventListener('change', e => {
+    const input = e.target;
+    if (!input.name?.startsWith('phg_slot_')) return;
+    const v      = input.name.replace('phg_slot_', '');
+    const diaChk = document.querySelector(`.asist-dia-chk[value="${v}"]`);
+    const row    = input.closest('.asist-row');
+    if (!diaChk || !row) return;
+    const alguno = [...row.querySelectorAll(`input[name="phg_slot_${v}"]`)].some(i => i.checked);
+    if (alguno && !diaChk.checked) {
+      diaChk.checked = true;
+      row.querySelectorAll('.asist-hora-cell').forEach(c => {
+        c.classList.remove('asist-off');
+        c.querySelector('input').disabled = false;
+      });
+    } else if (!alguno && diaChk.checked) {
+      diaChk.checked = false;
+    }
+  });
+}
+
+function _leerGridHorarios() {
+  const diasLaborales = [...document.querySelectorAll('input[name="prof_dia"]:checked')].map(e => Number(e.value));
+  const horariosPorDia = {};
+  diasLaborales.forEach(d => {
+    const slots = [...document.querySelectorAll(`input[name="phg_slot_${d}"]:checked`)].map(e => e.value);
+    if (slots.length) horariosPorDia[d] = slots;
+  });
+  return { diasLaborales, horariosPorDia };
+}
+
 function verPacientesExcluidosDeProf(profId) {
   const prof = Profesionales.todos().find(p => p.id === profId);
   const nombreProf = prof ? `${prof.nombre} ${prof.apellido}` : 'este profesional';
@@ -4221,14 +4243,7 @@ function guardarProf(id) {
   const apellido = document.getElementById('prof-apellido').value.trim();
   if (!nombre || !apellido) { alert('Nombre y apellido son obligatorios.'); return; }
   const disciplinas = [...document.querySelectorAll('input[name="prof_disc"]:checked')].map(e => e.value);
-  const diasLaborales = [...document.querySelectorAll('input[name="prof_dia"]:checked')].map(e => Number(e.value));
-
-  // Horarios por día
-  const horariosPorDia = {};
-  diasLaborales.forEach(d => {
-    const slots = [...document.querySelectorAll(`input[name="phg_slot_${d}"]:checked`)].map(e => e.value);
-    if (slots.length) horariosPorDia[d] = slots;
-  });
+  const { diasLaborales, horariosPorDia } = _leerGridHorarios();
 
   const esCoordinador = document.getElementById('prof-coordinador')?.checked || false;
   const esPracticante = document.getElementById('prof-es-practicante')?.checked || false;
@@ -5794,6 +5809,13 @@ async function _cargarUserProfiles() {
   }
 }
 
+// Área de un usuario admin de área = disciplinas del profesional vinculado.
+function _areaDeProfesional(profId) {
+  const p = profId ? Profesionales.porId(profId) : null;
+  const labels = (p?.disciplinas || []).map(d => DISCIPLINAS[d]?.label || d);
+  return labels.length ? labels.join(', ') : '';
+}
+
 function vistaUsuarios() {
   if (!_userProfiles) {
     _cargarUserProfiles();
@@ -5816,6 +5838,10 @@ function vistaUsuarios() {
       ? (() => { const p = profs.find(x => x.id === u.profesional_id); return p ? esc(p.apellido + ', ' + p.nombre) : u.profesional_id; })()
       : '<span class="text-muted">—</span>';
 
+    const areaTxt = u.rol === 'admin_area'
+      ? `<div style="font-size:11px;color:var(--text-muted)">Área: ${esc(_areaDeProfesional(u.profesional_id)) || '<span style="color:var(--color-danger)">sin área (vincular un profesional)</span>'}</div>`
+      : '';
+
     const acciones = u.origen === 'allowlist'
       ? `<span class="text-muted" style="font-size:12px">${u.activo ? 'Se gestiona desde Supabase' : 'Desactivado en Supabase'}</span>`
       : u.rol === 'pendiente'
@@ -5829,7 +5855,7 @@ function vistaUsuarios() {
     return `<tr>
       <td>${esc(u.email)}</td>
       <td>${rolBadge}</td>
-      <td>${profVinculado}</td>
+      <td>${profVinculado}${areaTxt}</td>
       <td class="text-muted" style="font-size:12px">${fecha}</td>
       <td style="display:flex;gap:6px;flex-wrap:wrap">${acciones}</td>
     </tr>`;
@@ -5887,6 +5913,7 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
           <option value="">— Sin vincular —</option>
           ${profs.map(p => `<option value="${p.id}" ${p.id === profIdActual ? 'selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`).join('')}
         </select>
+        <div id="usr-area" class="text-muted" style="font-size:12px;margin-top:6px"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -5898,6 +5925,17 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
   selRol?.addEventListener('change', e => {
     document.getElementById('grp-prof-vinc').style.display = _esRolPro(e.target.value) ? '' : 'none';
   });
+  // El área del admin de área son las disciplinas del profesional vinculado
+  const _pintarArea = () => {
+    const el = document.getElementById('usr-area');
+    if (!el) return;
+    if (document.getElementById('modal-usr-rol')?.value !== 'admin_area') { el.textContent = ''; return; }
+    const area = _areaDeProfesional(document.getElementById('modal-usr-prof')?.value);
+    el.textContent = area ? 'Área (disciplinas del profesional): ' + area : 'Elegí un profesional: su área define qué sesiones puede crear.';
+  };
+  selRol?.addEventListener('change', _pintarArea);
+  document.getElementById('modal-usr-prof')?.addEventListener('change', _pintarArea);
+  _pintarArea();
   // Usar el valor real del select (no rolActual) para el estado inicial:
   // cuando rolActual='pendiente' el select muestra 'profesional' por defecto.
   if (!_esRolPro(selRol?.value)) document.getElementById('grp-prof-vinc').style.display = 'none';
@@ -5906,6 +5944,11 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
 async function guardarUsuario(uid) {
   const rol    = document.getElementById('modal-usr-rol').value;
   const profId = document.getElementById('modal-usr-prof')?.value || null;
+
+  if (rol === 'admin_area' && (!profId || !_areaDeProfesional(profId))) {
+    mostrarToast('Un admin de área necesita un profesional vinculado con disciplinas: de ahí sale su área.', 'warning');
+    return;
+  }
 
   const { error } = await supabaseClient
     .from('user_profiles')
@@ -6078,11 +6121,13 @@ function _guardarAviso(fecha, aviso) {
   DiasState.setAvisoProfesional(fecha, profId, aviso);
 }
 
-// Upsert directo a Supabase para garantizar que el aviso llega al servidor.
+// Guarda el aviso en el servidor vía RPC: la función solo toca el aviso del
+// profesional vinculado al usuario, sin pisar el resto del día.
 async function _guardarAvisoEnSupabase(fecha) {
   if (typeof supabaseClient === 'undefined') return true;
-  const data = DiasState.todos()[fecha] || {};
-  const { error } = await supabaseClient.from('dias_state').upsert({ fecha, data });
+  const profId = usuarioActual?.profesionalId;
+  const aviso  = DiasState.todos()[fecha]?.avisosProfesionales?.[profId] ?? null;
+  const { error } = await supabaseClient.rpc('guardar_aviso_profesional', { p_fecha: fecha, p_aviso: aviso });
   if (error) {
     console.error('Error guardando aviso en Supabase:', error);
     mostrarToast('Error al guardar: ' + (error.message || error.code || 'desconocido'), 'error');
@@ -6428,12 +6473,6 @@ function vistaPerfilProfesional() {
       </div>`;
   }
 
-  const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-  const diasChecks = dias.map((d, i) => `
-    <label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px">
-      <input type="checkbox" class="chk-dia-laboral" value="${i}" ${(prof.diasLaborales||[]).includes(i) ? 'checked' : ''}> ${d}
-    </label>`).join('');
-
   const grupoEntries = Object.entries(GRUPOS_DIAGNOSTICOS || {});
   const grupoChecks = grupoEntries.length > 0
     ? grupoEntries.map(([gid, g]) => `
@@ -6457,8 +6496,12 @@ function vistaPerfilProfesional() {
     </div>
     <div class="card-body">
       <div class="form-group">
-        <label class="form-label">Días laborales</label>
-        <div>${diasChecks}</div>
+        <label class="form-label">Días y horas de asistencia</label>
+        ${_gridHorariosHtml(prof)}
+        <span class="text-muted" style="font-size:11px;margin-top:4px;display:block">
+          Marcá el día para activarlo y seleccioná las horas en que estás presente.
+          Si marcás el día sin seleccionar horas, se considera que estás todos los turnos de terapia.
+        </span>
       </div>
       <div class="form-group" style="margin-top:16px">
         <label class="form-label">Horario</label>
@@ -6483,18 +6526,25 @@ function vistaPerfilProfesional() {
 }
 
 function bindPerfilProfesional() {
-  document.getElementById('btn-guardar-mi-perfil')?.addEventListener('click', () => {
+  _bindGridHorarios();
+  document.getElementById('btn-guardar-mi-perfil')?.addEventListener('click', async () => {
     const profId = usuarioActual?.profesionalId;
     const prof   = Profesionales.porId(profId) || Profesionales.activos().find(p => p.id === profId);
     if (!prof) return;
 
-    const diasLaborales = [...document.querySelectorAll('.chk-dia-laboral:checked')].map(el => Number(el.value));
+    const { diasLaborales, horariosPorDia } = _leerGridHorarios();
     const tieneManana   = document.getElementById('chk-manana')?.checked ?? true;
     const tieneTarde    = document.getElementById('chk-tarde')?.checked ?? true;
     const gruposPreferencia = [...document.querySelectorAll('.chk-grupo-pref:checked')].map(el => el.value);
 
-    const actualizado = { ...prof, diasLaborales, tieneManana, tieneTarde, gruposPreferencia };
-    Profesionales.actualizar(profId, actualizado);
+    const cambios = { diasLaborales, horariosPorDia, tieneManana, tieneTarde, gruposPreferencia };
+    Profesionales.actualizar(profId, cambios); // cache local (no sincroniza: ver _puedeSincronizar)
+    const { error } = await supabaseClient.rpc('actualizar_mi_perfil', { p_cambios: cambios });
+    if (error) {
+      console.error('Error guardando perfil:', error);
+      mostrarToast('Error al guardar: ' + (error.message || error.code || 'desconocido'), 'error');
+      return;
+    }
     mostrarToast('Perfil guardado', 'success');
   });
 }
