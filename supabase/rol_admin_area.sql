@@ -22,10 +22,13 @@ as $$
 $$;
 
 -- 3) Escritura de sesiones (Nueva sesión fija escribe asignaciones, auditoria e historial).
+drop policy if exists "area_admin_asignaciones" on asignaciones;
 create policy "area_admin_asignaciones" on asignaciones
   for all using (is_area_admin()) with check (is_area_admin());
+drop policy if exists "area_admin_auditoria" on auditoria;
 create policy "area_admin_auditoria" on auditoria
   for insert with check (is_area_admin());
+drop policy if exists "area_admin_historial" on historial;
 create policy "area_admin_historial" on historial
   for insert with check (is_area_admin());
 -- Lectura: los datos que ya ve un profesional (pacientes, profesionales, planes,
