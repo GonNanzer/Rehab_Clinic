@@ -260,7 +260,7 @@ input, select, textarea { font-family: inherit; font-size: 13px; }
 
 /* ── Visibilidad por rol ──────────────────────────────────────────────────────── */
 /* Por defecto todo oculto hasta que el rol se asigne al body */
-.admin-only, .pro-only { display: none; }
+.admin-only, .pro-only, .area-only { display: none; }
 /* Admin ve solo items admin */
 body.rol-admin .admin-only  { display: flex; }
 body.rol-admin .admin-only.sidebar-persist,
@@ -269,6 +269,9 @@ body.rol-admin .pro-only    { display: none; }
 /* Profesional ve solo items pro */
 body.rol-profesional .pro-only   { display: flex; }
 body.rol-profesional .admin-only { display: none; }
+/* Admin de área: menú de profesional + "Nueva sesión fija" */
+body.rol-admin_area .pro-only  { display: flex; }
+body.rol-admin_area .area-only { display: flex; }
 
 /* ── Vista pendiente ─────────────────────────────────────────────────────────── */
 .pendiente-wrap {
@@ -291,6 +294,7 @@ body.rol-profesional .admin-only { display: none; }
 .usuarios-tabla tr:hover td { background: var(--bg); }
 .rol-badge-admin      { background: #dbeafe; color: #1d4ed8; }
 .rol-badge-profesional{ background: #d1fae5; color: #065f46; }
+.rol-badge-admin-area { background: #ede9fe; color: #5b21b6; }
 .rol-badge-pendiente  { background: #fef3c7; color: #92400e; }
 
 /* ── UX profesional: header y contenedor general ─────────────────────────────── */

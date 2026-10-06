@@ -3,6 +3,7 @@
 // Roles:
 //   'admin'       → en tabla usuarios_permitidos (flujo existente, acceso total)
 //   'profesional' → en tabla user_profiles con rol='profesional'
+//   'admin_area'  → en user_profiles con rol='admin_area' (vistas de profesional + crear sesiones)
 //   'pendiente'   → en user_profiles con rol='pendiente' (esperando aprobación admin)
 
 let usuarioActual = null; // { email, nombre, rol, profesionalId }
@@ -60,7 +61,7 @@ async function requireAuth() {
     return usuarioActual; // la app muestra pantalla de "pendiente"
   }
 
-  if (perfil.rol === 'profesional' || perfil.rol === 'admin') {
+  if (perfil.rol === 'profesional' || perfil.rol === 'admin_area' || perfil.rol === 'admin') {
     usuarioActual = {
       email,
       nombre:        email.split('@')[0],

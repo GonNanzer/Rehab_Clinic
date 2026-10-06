@@ -135,14 +135,32 @@ function _idsProfsPresentes(estado, fecha) {
   return [];
 }
 
-const _VISTAS_ADMIN = new Set(['grilla','lista-prof','disponibilidad','pacientes','banos','egresados',
-  'exclusiones','profesionales','practicantes','planes','metricas','historial','auditoria','sesionRapida','usuarios']);
+const _VISTAS_ADMIN = new Set(['lista-prof','disponibilidad','pacientes','banos','egresados',
+  'exclusiones','profesionales','practicantes','planes','metricas','historial','auditoria','usuarios']);
 const _VISTAS_PRO   = new Set(['mi-agenda','mi-disponibilidad','mi-perfil']);
+// Vistas de creación de sesiones: admin y admin de área
+const _VISTAS_CREAR = new Set(['grilla','sesionRapida']);
+// Roles: 'admin' (todo) · 'admin_area' (vistas de profesional + crear sesiones) · 'profesional'
+const _esRolPro   = rol => rol === 'profesional' || rol === 'admin_area';
+const _puedeCrear = rol => rol === 'admin' || rol === 'admin_area';
+const _esAdminArea = () => usuarioActual?.rol === 'admin_area';
+// Disciplinas que el usuario puede usar al crear sesiones: null = todas (admin);
+// admin de área = las del profesional al que está vinculado.
+function _disciplinasPermitidas() {
+  if (!_esAdminArea()) return null;
+  const prof = usuarioActual.profesionalId ? Profesionales.porId(usuarioActual.profesionalId) : null;
+  return prof?.disciplinas || [];
+}
+function _discPermitida(disc) {
+  const permitidas = _disciplinasPermitidas();
+  return permitidas === null || permitidas.includes(disc);
+}
 
 function navegarA(vista) {
   const rol = usuarioActual?.rol;
   if (_VISTAS_ADMIN.has(vista) && rol !== 'admin') return;
-  if (_VISTAS_PRO.has(vista)   && rol !== 'profesional') return;
+  if (_VISTAS_PRO.has(vista)   && !_esRolPro(rol)) return;
+  if (_VISTAS_CREAR.has(vista) && !_puedeCrear(rol)) return;
   if (modoRotacion) cancelarModoRotacion();
   if (modoSwap) cancelarModoSwap();
   // Al entrar de nuevo a Horarios de Baño (desde otra vista) recargamos la
@@ -176,7 +194,8 @@ function renderVista() {
   const contenedor = document.getElementById('vista');
   const _rol = usuarioActual?.rol;
   if (_VISTAS_ADMIN.has(vistaActiva) && _rol !== 'admin') { contenedor.innerHTML = ''; return; }
-  if (_VISTAS_PRO.has(vistaActiva)   && _rol !== 'profesional') { contenedor.innerHTML = ''; return; }
+  if (_VISTAS_PRO.has(vistaActiva)   && !_esRolPro(_rol)) { contenedor.innerHTML = ''; return; }
+  if (_VISTAS_CREAR.has(vistaActiva) && !_puedeCrear(_rol)) { contenedor.innerHTML = ''; return; }
   switch (vistaActiva) {
     case 'grilla':        contenedor.innerHTML = vistaGrilla();            bindGrilla();            break;
     case 'pacientes':     contenedor.innerHTML = vistaPacientes();         bindPacientes();         break;
@@ -209,6 +228,7 @@ function vistaGrilla() {
   const alertas = []; // calculadas en tiempo real si hay sesiones
 
   const tieneSesiones = sesiones.length > 0;
+  const _area = _esAdminArea(); // admin de área: crea sesiones de su área, el resto es solo lectura
 
   // Profesionales con sesiones hoy (para el filtro)
   const profsHoy = Profesionales.activos().filter(p =>
@@ -257,14 +277,14 @@ function vistaGrilla() {
         ${profsHoy.map(p => `<option value="${p.id}" ${filtroProf === p.id ? 'selected' : ''}>${esc(p.apellido)}${p.nombre ? ', ' + esc(p.nombre) : ''}</option>`).join('')}
       </select>` : ''}
 
-      ${Asignaciones.puedeDeshacer()
+      ${_area ? '' : Asignaciones.puedeDeshacer()
         ? '<button class="btn btn-secondary" onclick="deshacerAgenda()" data-tooltip="Deshacer la última acción de agenda (Ctrl+Z)">↩ Deshacer</button>'
         : '<button class="btn btn-secondary" onclick="deshacerAgenda()" data-tooltip="No hay acciones para deshacer" disabled>↩ Deshacer</button>'}
       <button class="btn btn-secondary" onclick="window.print()"
         data-tooltip="Abre el diálogo de impresión del navegador con la agenda del día formateada.">🖨 Imprimir</button>
       <button class="btn btn-secondary" onclick="exportarGrillaPDF()"
         data-tooltip="Descarga la agenda del día como archivo PDF.">📄 PDF</button>
-      ${tieneSesiones ? `
+      ${tieneSesiones && !_area ? `
       <div class="hdr-dropdown" id="dd-sesiones">
         <button class="btn btn-secondary hdr-dropdown-toggle" onclick="toggleHdrDropdown('dd-sesiones')"
           data-tooltip="Acciones sobre las sesiones: mejorar asignaciones, fijar/desfijar o eliminar.">Sesiones ▾</button>
@@ -286,7 +306,7 @@ function vistaGrilla() {
             data-tooltip="Elimina todas las sesiones del día. Podés elegir si también eliminás las sesiones marcadas como fijas.">🗑 Eliminar sesiones</button>
         </div>
       </div>` : ''}
-      <div class="hdr-dropdown" id="dd-generar">
+      ${_area ? '' : `<div class="hdr-dropdown" id="dd-generar">
         <button class="btn btn-primary hdr-dropdown-toggle" onclick="toggleHdrDropdown('dd-generar')"
           data-tooltip="Genera la agenda automáticamente. Elegí el modo de generación según tu preferencia.">⚡ Generar ▾</button>
         <div class="hdr-dropdown-menu">
@@ -295,7 +315,7 @@ function vistaGrilla() {
           <button class="hdr-dd-item" id="btn-generar-horario"
             data-tooltip="Barre cada franja horaria de izquierda a derecha y llena los slots con la mejor combinación paciente-profesional. Refleja el método manual.">⏱ Por horario</button>
         </div>
-      </div>
+      </div>`}
     </div>
   </div>
   ${modoMover ? `
@@ -313,7 +333,7 @@ function vistaGrilla() {
     const idsPresentes = _idsProfsPresentes(estado, fechaActiva);
     html += `<div class="grilla-aviso-vacia">
       <span class="grilla-aviso-icono">📋</span>
-      <span>Agenda vacía para el ${formatFecha(fechaActiva)}. Generá la agenda automáticamente o hacé click en cualquier celda para agregar sesiones manualmente.</span>
+      <span>Agenda vacía para el ${formatFecha(fechaActiva)}. ${_area ? 'Hacé click en una celda para agregar sesiones de tu área.' : 'Generá la agenda automáticamente o hacé click en cualquier celda para agregar sesiones manualmente.'}</span>
       ${idsPresentes.length === 0 ? '<span class="grilla-aviso-warn">⚠ No hay profesionales marcados como presentes hoy.</span>' : ''}
     </div>`;
   }
@@ -334,7 +354,7 @@ function vistaGrilla() {
     </div>` : '';
 
   // Panel de cola de sesiones desplazadas
-  if (sesionesCola.length > 0) {
+  if (sesionesCola.length > 0 && !_area) {
     html += `<div class="cola-panel">
       <div class="cola-panel-header">
         <span class="cola-panel-titulo">📋 Sesiones pendientes de reasignación (${sesionesCola.length})</span>
@@ -490,7 +510,9 @@ function vistaGrilla() {
           const bgColor = disc?.bg || '#f0f0f0';
           const textColor = disc?.color || '#333';
           const iconOrigen = sesion.origen === 'manual' || sesion.origen === 'automatico_mejora' ? '✏ ' : '';
-          const lockIcon = sesion.fijo
+          const lockIcon = _area
+            ? (sesion.fijo ? '<span class="lock-icon" title="Sesión fija">🔒</span>' : '')
+            : sesion.fijo
             ? `<span class="lock-icon" data-sesion-id="${sesion.id}" data-fecha="${fechaActiva}" title="Sesión fija (click para desbloquear)">🔒</span>`
             : `<span class="lock-icon lock-icon-free" data-sesion-id="${sesion.id}" data-fecha="${fechaActiva}" title="Click para fijar sesión">🔓</span>`;
           const rotIdx = modoRotacion ? modoRotacion.cola.findIndex(c => c.sesionId === sesion.id) : -1;
@@ -498,13 +520,13 @@ function vistaGrilla() {
           const esSrcMover = modoMover?.sesionId === sesion.id;
           const dimmed = filtroProf && sesion.profesionalId !== filtroProf && !esSrcMover ? ' celda-dimmed' : '';
           html += `<td class="celda-sesion${sesion.fijo ? ' sesion-fija' : ''}${enRotacion}${esSrcMover ? ' celda-mover-src' : ''}${dimmed}"
-            draggable="true"
+            ${_area ? '' : 'draggable="true"'}
             style="background:${bgColor};border-left:3px solid ${textColor}"
             data-sesion-id="${sesion.id}"
             data-fecha="${fechaActiva}"
             data-pac-id="${pac.id}"
             data-slot-id="${slot.id}"
-            title="${esSrcMover ? 'Sesión a mover — elegí un slot vacío destino' : 'Arrastrá para mover o intercambiar · Click para editar'}">
+            title="${_area ? 'Solo lectura' : esSrcMover ? 'Sesión a mover — elegí un slot vacío destino' : 'Arrastrá para mover o intercambiar · Click para editar'}">
             ${lockIcon}
             <div class="celda-disc" style="color:${textColor}">
               ${(sesion.profesionalesAdicionales||[]).length > 0 ? '👥 ' : ''}${sesion.esAlmuerzo ? '🍽 ' : ''}${esc(disc?.corto || sesion.disciplina)}
@@ -588,6 +610,7 @@ function vistaGrilla() {
 }
 
 function deshacerAgenda() {
+  if (_esAdminArea()) return; // el deshacer es global: solo admin
   if (!Asignaciones.puedeDeshacer()) {
     mostrarToast('No hay acciones para deshacer', 'warning');
     return;
@@ -895,6 +918,7 @@ function bindGrilla() {
   document.querySelectorAll('.lock-icon').forEach(ic => {
     ic.addEventListener('click', e => {
       e.stopPropagation();
+      if (!ic.dataset.sesionId) return; // candado de solo lectura (admin de área)
       const sesionId = ic.dataset.sesionId;
       const fecha    = ic.dataset.fecha;
       toggleFijoSesion(sesionId, fecha);
@@ -931,6 +955,7 @@ function bindGrilla() {
   document.querySelectorAll('.celda-sesion').forEach(celda => {
     celda.addEventListener('click', e => {
       if (e.target.classList.contains('lock-icon')) return;
+      if (_esAdminArea()) return; // solo lectura: no edita sesiones existentes
       const sesionId = celda.dataset.sesionId;
       const fecha    = celda.dataset.fecha;
       if (modoMover) {
@@ -2248,7 +2273,9 @@ function abrirModalCrearSesion(pacienteId, slotId, fecha) {
 
   const profesionales = Profesionales.activos();
   const optsDisc = Object.entries(DISCIPLINAS)
+    .filter(([k]) => _discPermitida(k))
     .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+  if (!optsDisc) { mostrarToast('Tu usuario no tiene disciplinas asignadas. Pedile a un admin que lo vincule a un profesional.', 'warning'); return; }
 
   abrirModal(`
     <div class="modal-header">
@@ -2298,8 +2325,15 @@ function _confirmarCrearSesion(pacienteId, slotId, fecha) {
   const disc  = document.getElementById('mc-disciplina')?.value;
   const profId = document.getElementById('mc-profesional')?.value;
   if (!disc || !profId) { mostrarToast('Seleccioná disciplina y profesional.', 'warning'); return; }
+  if (!_discPermitida(disc)) { mostrarToast('Solo podés crear sesiones de tu área.', 'warning'); return; }
 
   const sesiones = Asignaciones.delDia(fecha);
+
+  // El admin de área no desplaza sesiones existentes (pueden ser de otra área)
+  if (_esAdminArea() && sesiones.some(s => (s.profesionalId === profId || s.pacienteId === pacienteId) && s.slotId === slotId)) {
+    mostrarToast('Ese horario ya está ocupado para el paciente o el profesional. Pedile a un admin que lo reorganice.', 'warning');
+    return;
+  }
 
   const conflictoProf = sesiones.find(s => s.profesionalId === profId && s.slotId === slotId);
   if (conflictoProf) {
@@ -5396,7 +5430,8 @@ function limpiarAuditoria() {
 
 function vistaSesionRapida() {
   const pacientes = Pacientes.activos().sort((a,b) => (a.apellido||'').localeCompare(b.apellido||''));
-  const discsOrdenadas = Object.entries(DISCIPLINAS).sort((a,b) => a[1].label.localeCompare(b[1].label));
+  const discsOrdenadas = Object.entries(DISCIPLINAS).filter(([k]) => _discPermitida(k))
+    .sort((a,b) => a[1].label.localeCompare(b[1].label));
   const profsCompatibles = _srDisciplina ? Profesionales.porDisciplina(_srDisciplina) : [];
 
   const pacOpts = pacientes.map(p =>
@@ -5443,6 +5478,7 @@ function vistaSesionRapida() {
   </div>
   <p class="text-muted" style="font-size:12px;margin-bottom:16px">
     Cargá una sesión fija para el futuro sin pasar por la grilla: elegí día, paciente, horario, disciplina y profesional.
+    ${_esAdminArea() ? `<br>Solo podés crear sesiones de tu área: <strong>${discsOrdenadas.map(([, d]) => esc(d.label)).join(', ') || 'sin disciplinas asignadas (pedile a un admin que te vincule a un profesional)'}</strong>.` : ''}
   </p>
   <div class="sesion-rapida-form">
     <div class="form-group">
@@ -5502,6 +5538,7 @@ async function crearSesionRapida() {
     mostrarToast('Completá todos los campos antes de crear la sesión.', 'warning');
     return;
   }
+  if (!_discPermitida(_srDisciplina)) { mostrarToast('Solo podés crear sesiones de tu área.', 'warning'); return; }
 
   // Refrescar contra el servidor antes de validar y guardar: dos personas
   // cargando desde el celular casi al mismo tiempo podrían ver el mismo
@@ -5738,7 +5775,19 @@ async function _cargarUserProfiles() {
     .select('*')
     .order('creado_en', { ascending: false });
   if (error) { console.error('Error cargando user_profiles:', error); return; }
-  _userProfiles = data || [];
+  // Los admins de la allowlist (usuarios_permitidos) no tienen fila en
+  // user_profiles: se suman a la lista para que aparezcan todos los usuarios.
+  const { data: permitidos, error: errPerm } = await supabaseClient
+    .from('usuarios_permitidos')
+    .select('email, nombre, activo');
+  if (errPerm) console.error('Error cargando usuarios_permitidos:', errPerm);
+  const lista = data || [];
+  const emails = new Set(lista.map(u => (u.email || '').toLowerCase()));
+  (permitidos || []).forEach(p => {
+    if (emails.has((p.email || '').toLowerCase())) return;
+    lista.push({ email: p.email, rol: 'admin', origen: 'allowlist', activo: p.activo !== false });
+  });
+  _userProfiles = lista;
   if (vistaActiva === 'usuarios') {
     document.getElementById('vista').innerHTML = vistaUsuarios();
     bindUsuarios();
@@ -5757,6 +5806,8 @@ function vistaUsuarios() {
   const filas = _userProfiles.map(u => {
     const rolBadge = u.rol === 'admin'
       ? '<span class="badge rol-badge-admin">Admin</span>'
+      : u.rol === 'admin_area'
+      ? '<span class="badge rol-badge-admin-area">Admin de área</span>'
       : u.rol === 'profesional'
       ? '<span class="badge rol-badge-profesional">Profesional</span>'
       : '<span class="badge rol-badge-pendiente">Pendiente</span>';
@@ -5765,7 +5816,9 @@ function vistaUsuarios() {
       ? (() => { const p = profs.find(x => x.id === u.profesional_id); return p ? esc(p.apellido + ', ' + p.nombre) : u.profesional_id; })()
       : '<span class="text-muted">—</span>';
 
-    const acciones = u.rol === 'pendiente'
+    const acciones = u.origen === 'allowlist'
+      ? `<span class="text-muted" style="font-size:12px">${u.activo ? 'Se gestiona desde Supabase' : 'Desactivado en Supabase'}</span>`
+      : u.rol === 'pendiente'
       ? `<button class="btn btn-sm btn-primary" onclick="abrirModalAprobar('${u.auth_user_id}','${esc(u.email)}')">Aprobar</button>
          <button class="btn btn-sm btn-danger" onclick="revocarUsuario('${u.auth_user_id}','${esc(u.email)}')">Rechazar</button>`
       : `<button class="btn btn-sm btn-secondary" onclick="abrirModalAprobar('${u.auth_user_id}','${esc(u.email)}','${u.rol}','${u.profesional_id||''}')">Editar</button>
@@ -5824,6 +5877,7 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
         <label class="form-label">Rol</label>
         <select id="modal-usr-rol" class="select-field">
           <option value="profesional" ${rolActual === 'profesional' ? 'selected' : ''}>Profesional</option>
+          <option value="admin_area"  ${rolActual === 'admin_area'  ? 'selected' : ''}>Admin de área</option>
           <option value="admin"       ${rolActual === 'admin'       ? 'selected' : ''}>Admin</option>
         </select>
       </div>
@@ -5842,11 +5896,11 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
 
   const selRol = document.getElementById('modal-usr-rol');
   selRol?.addEventListener('change', e => {
-    document.getElementById('grp-prof-vinc').style.display = e.target.value === 'profesional' ? '' : 'none';
+    document.getElementById('grp-prof-vinc').style.display = _esRolPro(e.target.value) ? '' : 'none';
   });
   // Usar el valor real del select (no rolActual) para el estado inicial:
   // cuando rolActual='pendiente' el select muestra 'profesional' por defecto.
-  if (selRol?.value !== 'profesional') document.getElementById('grp-prof-vinc').style.display = 'none';
+  if (!_esRolPro(selRol?.value)) document.getElementById('grp-prof-vinc').style.display = 'none';
 }
 
 async function guardarUsuario(uid) {
@@ -5855,7 +5909,7 @@ async function guardarUsuario(uid) {
 
   const { error } = await supabaseClient
     .from('user_profiles')
-    .update({ rol, profesional_id: rol === 'profesional' ? (profId || null) : null })
+    .update({ rol, profesional_id: _esRolPro(rol) ? (profId || null) : null })
     .eq('auth_user_id', uid);
 
   if (error) { mostrarToast('Error al guardar: ' + error.message, 'error'); return; }
@@ -6471,7 +6525,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Aplicar clase de rol al body (controla visibilidad de nav items via CSS)
   document.body.classList.add('rol-' + usuario.rol);
   // Los profesionales empiezan en "Mi agenda", no en la grilla
-  if (usuario.rol === 'profesional') vistaActiva = 'mi-agenda';
+  if (_esRolPro(usuario.rol)) vistaActiva = 'mi-agenda';
 
   // 2. Cargar datos desde Supabase antes de dibujar nada
   document.getElementById('app').classList.add('cargando-datos');
