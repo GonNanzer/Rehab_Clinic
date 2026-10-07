@@ -5842,7 +5842,10 @@ function vistaUsuarios() {
       ? `<div style="font-size:11px;color:var(--text-muted)">Área: ${esc(_areaDeProfesional(u.profesional_id)) || '<span style="color:var(--color-danger)">sin área (vincular un profesional)</span>'}</div>`
       : '';
 
-    const acciones = u.origen === 'allowlist'
+    const esYo = (u.email || '').toLowerCase() === (usuarioActual?.email || '').toLowerCase();
+    const acciones = esYo
+      ? '<span class="text-muted" style="font-size:12px">Tu usuario</span>'
+      : u.origen === 'allowlist'
       ? `<span class="text-muted" style="font-size:12px">${u.activo ? 'Se gestiona desde Supabase' : 'Desactivado en Supabase'}</span>`
       : u.rol === 'pendiente'
       ? `<button class="btn btn-sm btn-primary" onclick="abrirModalAprobar('${u.auth_user_id}','${esc(u.email)}')">Aprobar</button>
