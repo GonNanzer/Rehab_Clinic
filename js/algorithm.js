@@ -38,6 +38,64 @@ function _horarioAmbulatorioDia(p, dia) {
   return (p.horarioAmbulatorioPorDia || {})[dia] || null;
 }
 
+// Ventana de un ambulatorio ese día como índices de SLOTS ({ iIng, iEgr }), o
+// null si no asiste ese día o no tiene horario definido. Dentro de la ventana
+// TODOS los slots libres deben tener sesión (el 12 y el 13 incluidos).
+function _ventanaAmbulatoria(p, dia) {
+  if (!p.esAmbulatorio) return null;
+  if (!(p.diasAsistencia || []).includes(dia)) return null;
+  const horario = _horarioAmbulatorioDia(p, dia);
+  if (!horario || !horario.slotIngreso || !horario.slotEgreso) return null;
+  const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
+  const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
+  if (iIng < 0 || iEgr < 0 || iEgr < iIng) return null;
+  return { iIng, iEgr };
+}
+
+// Marca como 'BLOQ_HORARIO_AMB' los slots fuera de la ventana de cada
+// ambulatorio que asiste ese día (aplica a todos los slots, incluido el 12).
+function _aplicarVentanaAmbulatoria(patientSlots, pacientes, dia) {
+  pacientes.forEach(p => {
+    const v = _ventanaAmbulatoria(p, dia);
+    if (!v || !patientSlots[p.id]) return;
+    SLOTS.forEach((s, i) => {
+      if ((i < v.iIng || i > v.iEgr) && !patientSlots[p.id][s.id])
+        patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
+    });
+  });
+}
+
+// El 12:00 es horario común para ambulatorios. Para un internado que almuerza
+// en la institución "sin terapista" no se le asigna sesión automáticamente (el
+// profesional queda libre para quien sí lo necesita), pero el operario puede
+// asignarlo a mano. Los que requieren almuerzo terapéutico lo tienen reservado.
+function _esSlotExcluidoDeAuto(pac, slot) {
+  if (!slot || !slot.esAlmuerzo) return false;
+  if (pac.requiereAlmuerzoTerapeutico) return true;
+  return !pac.esAmbulatorio && (pac.almuerza ?? true);
+}
+
+// Slots que el perfil del paciente bloquea ese día (bloqueos del día,
+// permanentes y baño), sin considerar sesiones ni ventana ambulatoria.
+function _slotsBloqueadosPaciente(pac, estado, dia) {
+  const tmp = { [pac.id]: {} };
+  ((estado.bloquesPacientes || {})[pac.id] || []).forEach(b => { tmp[pac.id][b.slotId] = 'BLOQUEADO'; });
+  (pac.bloqueosPermanentes || []).forEach(b => { if (!tmp[pac.id][b.slotId]) tmp[pac.id][b.slotId] = 'BLOQ_PERM'; });
+  _aplicarBloqueosBano(tmp, pac.id, pac.bañosSemana, dia);
+  return tmp[pac.id];
+}
+
+// Cantidad de sesiones que el paciente debe tener ese día. Un ambulatorio
+// presente necesita una por cada slot libre de su ventana; el resto, el objetivo fijo.
+function _horasObjetivoPaciente(pac, estado, dia) {
+  const v = _ventanaAmbulatoria(pac, dia);
+  if (!v) return HORAS_OBJETIVO_DIA;
+  const bloq = _slotsBloqueadosPaciente(pac, estado, dia);
+  let n = 0;
+  for (let i = v.iIng; i <= v.iEgr; i++) if (!bloq[SLOTS[i].id]) n++;
+  return n;
+}
+
 // Aplica los bloqueos de baño semanal de un paciente para el día dado
 // (el slot del baño en sí, y opcionalmente la hora anterior/siguiente).
 function _aplicarBloqueosBano(patientSlots, pacienteId, bañosSemana, diaActual) {
@@ -67,19 +125,10 @@ function _aplicarBloqueosBano(patientSlots, pacienteId, bañosSemana, diaActual)
 // mensaje claro, en vez de saltarse la prioridad silenciosamente).
 function _discPrioritariaDisponible(discsPrioridad, profsDisponibles, estadoDia, slot, fecha) {
   if (!discsPrioridad || discsPrioridad.length === 0) return null;
-  const diaNum = _weekday(fecha);
   for (const disc of discsPrioridad) {
-    const hayDisponible = profsDisponibles.some(p => {
-      if (!_profEnTurno(estadoDia, p.id, slot.turno, fecha, slot.id)) return false;
-      if (!(p.disciplinas || []).includes(disc)) return false;
-      const presDisc = _getPresencia(estadoDia, p.id, fecha);
-      const esCustomDisc = typeof presDisc === 'object' && presDisc !== null && presDisc.ingreso && presDisc.retiro;
-      if (!esCustomDisc) {
-        const horarios = (p.horariosPorDia || {})[diaNum];
-        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
-      }
-      return true;
-    });
+    const hayDisponible = profsDisponibles.some(p =>
+      (p.disciplinas || []).includes(disc) && _disponibilidadProfSlot(p, estadoDia, slot, fecha).ok
+    );
     if (hayDisponible) return disc;
   }
   return discsPrioridad[0];
@@ -105,7 +154,7 @@ function _generaConsecutividad(pacienteId, disciplina, slotIdx, sesionesActuales
  * Devuelve una lista de "necesidades" para el paciente en el día dado.
  * Cada ítem es: { tipo, disciplina, esAlmuerzo, slotForzado, urgente, motivoUrgente, prioridad, profesionalId? }
  */
-function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgentes, fecha) {
+function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgentes, fecha, horasObjetivo = HORAS_OBJETIVO_DIA) {
   const necesidades = [];
 
   // 0. Rutina de higiene matutina: reserva slot 09:00
@@ -143,7 +192,7 @@ function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgen
 
   // 3. Sesiones regulares basadas en plan semanal
   const horasYaOcupadas = necesidades.length;
-  let horasPorCubrir = HORAS_OBJETIVO_DIA - horasYaOcupadas;
+  let horasPorCubrir = horasObjetivo - horasYaOcupadas;
   if (horasPorCubrir <= 0) return necesidades;
 
   const disciplinas = Object.keys(plan).filter(d => (plan[d] || 0) > 0);
@@ -265,14 +314,14 @@ function calcularPuntaje(prof, slot, slotIdx, paciente, disciplina, esAlmuerzo, 
     // KTR: restricción de posicionamiento al inicio de turno.
     // Con una sola KTR diaria → inicio de mañana (slot_08, idx 0).
     // Con dos o más → la primera en slot_08, la siguiente en inicio de tarde (slot_14, idx 5).
-    // Índices SLOTS: 0=08h 1=09h 2=10h 3=11h 4=12h(almuerzo) 5=14h 6=15h 7=16h 8=17h 9=18h
+    // Índices SLOTS: 0=08h 1=09h 2=10h 3=11h 4=12h 5=13h 6=14h 7=15h 8=16h 9=17h 10=18h
     if (disciplina === 'kinesiologiaRespiratoria') {
       const ktrHoy = sesionesActuales.filter(
         s => s.pacienteId === paciente.id && s.disciplina === 'kinesiologiaRespiratoria'
       ).length;
       const bonusKtr = ktrHoy === 0
-        ? [30, 12, 5, 0, 0, 0,  0,  0, 0, 0][slotIdx] || 0   // primera: inicio turno mañana
-        : [0,  0,  0, 0, 0, 30, 12, 5, 2, 0][slotIdx] || 0;  // siguiente: inicio turno tarde
+        ? [30, 12, 5, 0, 0, 0, 0,  0,  0, 0, 0][slotIdx] || 0   // primera: inicio turno mañana
+        : [0,  0,  0, 0, 0, 0, 30, 12, 5, 2, 0][slotIdx] || 0;  // siguiente: inicio turno tarde
       if (bonusKtr > 0) {
         total += bonusKtr;
         motivos.push(`KTR inicio de turno ${ktrHoy === 0 ? 'mañana' : 'tarde'} +${bonusKtr}`);
@@ -283,11 +332,11 @@ function calcularPuntaje(prof, slot, slotIdx, paciente, disciplina, esAlmuerzo, 
       // (kinesiología primero para activar el cuerpo, después TO, después
       // fono, y neuropsicología/psicología más tarde en el turno).
       const SLOT_ORDER_BONUS = {
-        kinesiologia:       [9, 6, 3, 0, 0,  9, 6, 3, 0, 0],
-        terapiaOcupacional: [3, 9, 6, 0, 0,  3, 9, 6, 3, 0],
-        fonoaudiologia:     [0, 3, 9, 6, 0,  0, 3, 9, 6, 3],
-        neuropsicologia:    [0, 0, 3, 9, 0,  0, 0, 3, 9, 6],
-        psicologia:         [0, 0, 3, 9, 0,  0, 0, 3, 9, 6]
+        kinesiologia:       [9, 6, 3, 0, 0, 0,  9, 6, 3, 0, 0],
+        terapiaOcupacional: [3, 9, 6, 0, 0, 0,  3, 9, 6, 3, 0],
+        fonoaudiologia:     [0, 3, 9, 6, 0, 0,  0, 3, 9, 6, 3],
+        neuropsicologia:    [0, 0, 3, 9, 0, 0,  0, 0, 3, 9, 6],
+        psicologia:         [0, 0, 3, 9, 0, 0,  0, 0, 3, 9, 6]
       };
       const orderBonus = (SLOT_ORDER_BONUS[disciplina] || [])[slotIdx] || 0;
       if (orderBonus > 0) {
@@ -348,11 +397,15 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
                           patientSlots, profsDisponibles, fecha, sesionesEstaSemana,
                           ctx = {}) {
   // ctx.coordSesEstaSemana: { profId: count } — cuota semanal de coordinadores
+  // ctx.relajar: { consecutividad, limites, grupo, exclusiones } — restricciones que
+  //   pueden ceder SOLO para completar la ventana de un ambulatorio (ver _completarVentanaAmbulatoria).
+  const relajar = ctx.relajar || {};
   const { disciplina, esAlmuerzo, slotForzado, urgente, discsPrioridad } = necesidad;
   const esHigiene = necesidad.tipo === 'higiene';
+  const estadoDia = DiasState.delDia(fecha);
 
   // Verificar límite diario por disciplina (las prescripciones urgentes lo omiten)
-  if (!esAlmuerzo && !urgente) {
+  if (!esAlmuerzo && !urgente && !relajar.limites) {
     const limiteD = paciente.limitesDiarios?.[disciplina];
     if (limiteD > 0) {
       const yaHoy = sesionesActuales.filter(
@@ -367,14 +420,19 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   let candidatos;
   if (slotForzado) {
     candidatos = SLOTS.filter(s => s.id === slotForzado && !patientSlots[paciente.id][s.id]);
+    // Relleno de hueco / cierre de ventana: respeta la no repetición de disciplina
+    // en slots consecutivos (salvo que se la ceda explícitamente)
+    if ((necesidad.tipo === 'relleno_hueco' || necesidad.tipo === 'cierre_ventana') && !relajar.consecutividad) {
+      candidatos = candidatos.filter(s =>
+        !_generaConsecutividad(paciente.id, disciplina, SLOTS.findIndex(sl => sl.id === s.id), sesionesActuales));
+    }
   } else {
     candidatos = SLOTS.filter(s => {
       if (patientSlots[paciente.id][s.id]) return false;     // ocupado o bloqueado
-      if (s.soloManual) return false;                        // reservado para sesiones manuales
-      if (s.esAlmuerzo && paciente.requiereAlmuerzoTerapeutico) return false; // reservado para almuerzo
       if (esAlmuerzo) return s.esAlmuerzo;
+      if (_esSlotExcluidoDeAuto(paciente, s)) return false;  // 12:00: almuerzo reservado / sin terapista
       const idx = SLOTS.findIndex(sl => sl.id === s.id);
-      if (_generaConsecutividad(paciente.id, disciplina, idx, sesionesActuales)) return false;
+      if (!relajar.consecutividad && _generaConsecutividad(paciente.id, disciplina, idx, sesionesActuales)) return false;
       return true;
     });
   }
@@ -383,6 +441,8 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
     return { ok: false, razon: 'sin_slot', msg: 'No hay slots disponibles' };
   }
 
+  const excluidoPorPaciente = p => !relajar.exclusiones && (paciente.exclusionesProfesionales || []).includes(p.id);
+
   let mejorPuntaje = -Infinity;
   let mejorAsignacion = null;
 
@@ -390,63 +450,37 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
     const slotIdx = SLOTS.findIndex(s => s.id === slot.id);
 
     // Filtrar profesionales válidos para este slot
+    // (_disponibilidadProfSlot cubre presencia del día, horario habitual / rango del día y bloqueos)
     let profsValidos;
     if (esAlmuerzo) {
-      const _diaNumAlm = _weekday(fecha);
-      const _estadoAlm = DiasState.delDia(fecha);
       const discElegidaAlm = _discPrioritariaDisponible(
         paciente.disciplinasAlmuerzo?.length ? paciente.disciplinasAlmuerzo : DISCIPLINAS_ALMUERZO_DEFAULT,
-        profsDisponibles, _estadoAlm, slot, fecha
+        profsDisponibles, estadoDia, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
-        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
-        if (!_profEnTurno(_estadoAlm, p.id, slot.turno, fecha, slot.id)) return false;
+        if (excluidoPorPaciente(p)) return false;
+        if (!_disponibilidadProfSlot(p, estadoDia, slot, fecha).ok) return false;
         if (discElegidaAlm && !(p.disciplinas || []).includes(discElegidaAlm)) return false;
-        const presAlm = _getPresencia(_estadoAlm, p.id, fecha);
-        const esCustomAlm = typeof presAlm === 'object' && presAlm !== null && presAlm.ingreso && presAlm.retiro;
-        if (!esCustomAlm) {
-          const horariosAlm = (p.horariosPorDia || {})[_diaNumAlm];
-          if (horariosAlm && horariosAlm.length > 0 && !horariosAlm.includes(slot.id)) return false;
-        }
-        const slotStatus = profSlotsHoy[p.id]?.[slot.id];
-        return !slotStatus;
+        return !profSlotsHoy[p.id]?.[slot.id];
       });
     } else if (esHigiene) {
-      const _diaNumHig = _weekday(fecha);
-      const _estadoHig = DiasState.delDia(fecha);
       const discElegidaHig = _discPrioritariaDisponible(
-        discsPrioridad, profsDisponibles, _estadoHig, slot, fecha
+        discsPrioridad, profsDisponibles, estadoDia, slot, fecha
       );
       profsValidos = profsDisponibles.filter(p => {
-        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
-        if (!_profEnTurno(_estadoHig, p.id, slot.turno, fecha, slot.id)) return false;
+        if (excluidoPorPaciente(p)) return false;
+        if (!_disponibilidadProfSlot(p, estadoDia, slot, fecha).ok) return false;
         if (discElegidaHig && !(p.disciplinas || []).includes(discElegidaHig)) return false;
-        const presHig = _getPresencia(_estadoHig, p.id, fecha);
-        const esCustomHig = typeof presHig === 'object' && presHig !== null && presHig.ingreso && presHig.retiro;
-        if (!esCustomHig) {
-          const horariosHig = (p.horariosPorDia || {})[_diaNumHig];
-          if (horariosHig && horariosHig.length > 0 && !horariosHig.includes(slot.id)) return false;
-        }
-        const slotStatus = profSlotsHoy[p.id]?.[slot.id];
-        return !slotStatus;
+        return !profSlotsHoy[p.id]?.[slot.id];
       });
     } else {
-      const _estadoSlot = DiasState.delDia(fecha);
       profsValidos = profsDisponibles.filter(p => {
         if (necesidad.profesionalId && p.id !== necesidad.profesionalId) return false;
-        if ((paciente.exclusionesProfesionales || []).includes(p.id)) return false;
-        if (!_profEnTurno(_estadoSlot, p.id, slot.turno, fecha, slot.id)) return false;
+        if (excluidoPorPaciente(p)) return false;
+        if (!_disponibilidadProfSlot(p, estadoDia, slot, fecha).ok) return false;
         if (!(p.disciplinas || []).includes(disciplina)) return false;
         // Grupo exclusivo: el profesional solo atiende su grupo asignado
-        if (p.grupoExclusivo && paciente.grupo !== p.grupoExclusivo) return false;
-        // Verificar disponibilidad horaria del profesional en este slot
-        const diaNum = _weekday(fecha);
-        const presReg = _getPresencia(_estadoSlot, p.id, fecha);
-        const esCustomReg = typeof presReg === 'object' && presReg !== null && presReg.ingreso && presReg.retiro;
-        if (!esCustomReg) {
-          const horarios = (p.horariosPorDia || {})[diaNum];
-          if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
-        }
+        if (!relajar.grupo && p.grupoExclusivo && paciente.grupo !== p.grupoExclusivo) return false;
         // Coordinador: cuota semanal (max total_slots_semana - 1)
         if (p.esCoordinador && ctx.coordSesEstaSemana) {
           const maxSemana = _totalSlotsSemanales(p) - 1;
@@ -459,7 +493,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
         if (disciplina === 'kinesiologiaRespiratoria' && !Array.isArray(slotStatus)) {
           if (paciente.bloqueaKTR) return false;
           const sesExistente = sesionesActuales.find(s => s.id === slotStatus);
-          if (!sesExistente) return false;
+          if (!sesExistente || sesExistente.disciplina !== 'kinesiologiaRespiratoria') return false;
           const pacExistente = Pacientes.porId(sesExistente.pacienteId);
           if (!pacExistente) return false;
           if (pacExistente.bloqueaKTR) return false;
@@ -490,6 +524,9 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   }
 
   const discFinal = esAlmuerzo ? '_almuerzo' : disciplina;
+  const motivos = [...mejorAsignacion.motivos];
+  const cedidas = Object.keys(relajar).filter(k => relajar[k]);
+  if (cedidas.length) motivos.push(`Cierre de ventana ambulatoria (cede: ${cedidas.join(', ')})`);
 
   return {
     ok: true,
@@ -505,11 +542,210 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
       esAlmuerzo:     !!esAlmuerzo,
       origen:         'automatico',
       puntaje:        mejorAsignacion.puntaje,
-      motivo:         mejorAsignacion.motivos.join(' · '),
+      motivo:         motivos.join(' · '),
       urgente:        !!urgente,
       creadoEn:       new Date().toISOString()
     }
   };
+}
+
+// Registra una sesión recién creada en los mapas de carga del día (profesional
+// y paciente) y en la cuota semanal de coordinadores. KTR dual: un mismo
+// profesional puede tener dos sesiones en el slot.
+function _registrarSesionEnMapas(sesion, sesiones, profSlotsHoy, patientSlots, profsDisponibles, ctx = {}) {
+  sesiones.push(sesion);
+  patientSlots[sesion.pacienteId][sesion.slotId] = sesion.id;
+  if (!profSlotsHoy[sesion.profesionalId]) profSlotsHoy[sesion.profesionalId] = {};
+  const existing = profSlotsHoy[sesion.profesionalId][sesion.slotId];
+  profSlotsHoy[sesion.profesionalId][sesion.slotId] = existing ? [existing, sesion.id] : sesion.id;
+  if (ctx.coordSesEstaSemana && profsDisponibles.find(p => p.id === sesion.profesionalId)?.esCoordinador) {
+    ctx.coordSesEstaSemana[sesion.profesionalId] = (ctx.coordSesEstaSemana[sesion.profesionalId] || 0) + 1;
+  }
+}
+
+// ─── Cierre de ventana de pacientes ambulatorios ──────────────────────────────
+//
+// Un ambulatorio presente no puede tener un slot libre dentro de su ventana.
+// Esto se garantiza por construcción: los ambulatorios se asignan primero, con
+// una cantidad de necesidades igual a su ventana, y este paso cierra los slots
+// que hayan quedado sin cubrir:
+//   1. Asigna una disciplina del plan (nunca fuera del plan) con un profesional
+//      libre, cediendo —solo si hace falta y en este orden— la no repetición
+//      consecutiva, los límites diarios, el grupo exclusivo y las exclusiones.
+//   2. Si no hay profesional libre, reubica la sesión de otro paciente (la
+//      reasigna a otro profesional libre o la mueve a otro slot) para liberar
+//      a un profesional de una disciplina del plan.
+// Devuelve los slots que no pudo cubrir (solo ocurre ante datos de carga inconsistentes).
+
+const _TIERS_CESION = [
+  {},
+  { consecutividad: true },
+  { consecutividad: true, limites: true },
+  { consecutividad: true, limites: true, grupo: true },
+  { consecutividad: true, limites: true, grupo: true, exclusiones: true }
+];
+
+function _completarVentanaAmbulatoria(pac, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, sesionesEstaSemana, ctx = {}) {
+  const dia = _weekday(fecha);
+  const v = _ventanaAmbulatoria(pac, dia);
+  if (!v) return [];
+  const plan = Planes.delPaciente(pac.id);
+  const discs = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
+  const sinCubrir = [];
+
+  for (let i = v.iIng; i <= v.iEgr; i++) {
+    const slot = SLOTS[i];
+    if (patientSlots[pac.id][slot.id]) continue; // ocupado o bloqueado por el perfil/día
+    let cubierto = false;
+
+    for (const tier of _TIERS_CESION) {
+      let mejor = null;
+      for (const disc of discs) {
+        const nec = { tipo: 'cierre_ventana', disciplina: disc, esAlmuerzo: false, slotForzado: slot.id, urgente: false };
+        const res = intentarAsignar(nec, pac, sesiones, profSlotsHoy, patientSlots, profsDisponibles,
+          fecha, sesionesEstaSemana, { ...ctx, relajar: tier });
+        if (res.ok && (!mejor || res.sesion.puntaje > mejor.sesion.puntaje)) mejor = res;
+      }
+      if (mejor) {
+        _registrarSesionEnMapas(mejor.sesion, sesiones, profSlotsHoy, patientSlots, profsDisponibles, ctx);
+        cubierto = true;
+        break;
+      }
+    }
+
+    if (!cubierto) {
+      cubierto = _repararHuecoAmbulatorio(pac, slot, discs, sesiones, profSlotsHoy, patientSlots,
+        profsDisponibles, fecha, sesionesEstaSemana, ctx);
+    }
+    if (!cubierto) sinCubrir.push(slot);
+  }
+  return sinCubrir;
+}
+
+// Cubre el hueco de un ambulatorio reorganizando el slot con un camino aumentante
+// (matching): el ambulatorio toma a un profesional ocupado y la sesión desplazada
+//   · pasa a otro profesional libre o, en cadena, desplaza a su vez a otra sesión;
+//     un ambulatorio desplazado puede cambiar a otra disciplina de su plan, un
+//     internado conserva la suya; o
+//   · (solo internados) se mueve a otro slot libre manteniendo a su profesional.
+// Si no hay camino cediendo nada, se permite que los ambulatorios cedan las
+// exclusiones y el grupo exclusivo (primero solo el del hueco, después los de la cadena).
+// No toca sesiones fijas ni rutinas (higiene / almuerzo terapéutico).
+function _repararHuecoAmbulatorio(pac, slot, discs, sesiones, profSlotsHoy, patientSlots,
+                                  profsDisponibles, fecha, sesionesEstaSemana, ctx) {
+  const estado = DiasState.delDia(fecha);
+  const dia = _weekday(fecha);
+
+  const puedeMoverse = ses => ses && !ses.fijo && !(ses.disciplina || '').startsWith('_');
+  const esAmbulatorioHoy = p => !!_ventanaAmbulatoria(p, dia);
+  const discsDePlan = (p, primera) => {
+    const todas = _discsPlanOrdenadasPorDeficit(p, Planes.delPaciente(p.id), fecha);
+    return primera ? [primera, ...todas.filter(d => d !== primera)] : todas;
+  };
+
+  // nivel de cesión: 0 = nada · 1 = el ambulatorio del hueco cede exclusiones/grupo · 2 = todo ambulatorio en la cadena
+  let nivel = 0;
+  const cedeExcl = paciente => nivel === 2 ? esAmbulatorioHoy(paciente) : (nivel === 1 && paciente.id === pac.id);
+
+  // Opciones (profesional, disciplina) válidas para un paciente en este slot
+  const opcionesDe = (paciente, disciplinas) => {
+    const out = [];
+    const cede = cedeExcl(paciente);
+    for (const P of profsDisponibles) {
+      if (P.esCoordinador) continue; // no se reubican cuotas de coordinadores
+      if (!_disponibilidadProfSlot(P, estado, slot, fecha).ok) continue;
+      if (!cede && (paciente.exclusionesProfesionales || []).includes(P.id)) continue;
+      if (!cede && P.grupoExclusivo && paciente.grupo !== P.grupoExclusivo) continue;
+      const d = disciplinas.find(x => (P.disciplinas || []).includes(x));
+      if (d) out.push({ P, d });
+    }
+    return out;
+  };
+
+  // Otro slot donde el internado Y puede quedar con el mismo profesional P
+  const slotAlternativo = (Y, occ, P) => SLOTS.find(S2 => {
+    if (S2.id === slot.id) return false;
+    if (patientSlots[Y.id]?.[S2.id]) return false;
+    if (profSlotsHoy[P.id]?.[S2.id]) return false;
+    if (_esSlotExcluidoDeAuto(Y, S2)) return false;
+    if (!_disponibilidadProfSlot(P, estado, S2, fecha).ok) return false;
+    const sinOcc = sesiones.filter(s => s.id !== occ.id);
+    return !_generaConsecutividad(Y.id, occ.disciplina, SLOTS.indexOf(S2), sinOcc);
+  });
+
+  const movimientos = []; // más profundo primero: { ses (null = sesión nueva), paciente, P, d, moverA }
+  const buscar = (paciente, ses, visitados) => {
+    const disciplinas = !ses ? discs
+      : (esAmbulatorioHoy(paciente) ? discsDePlan(paciente, ses.disciplina) : [ses.disciplina]);
+    for (const { P, d } of opcionesDe(paciente, disciplinas)) {
+      if (visitados.has(P.id)) continue;
+      visitados.add(P.id);
+      const actual = profSlotsHoy[P.id]?.[slot.id];
+      if (!actual) { movimientos.push({ ses, paciente, P, d }); return true; }
+      if (typeof actual !== 'string') continue; // KTR dual: no se toca
+      const occ = sesiones.find(x => x.id === actual);
+      if (!puedeMoverse(occ) || occ.pacienteId === pac.id) continue;
+      const Y = Pacientes.porId(occ.pacienteId);
+      if (!Y) continue;
+      const mark = movimientos.length;
+      if (buscar(Y, occ, visitados)) { movimientos.push({ ses, paciente, P, d }); return true; }
+      movimientos.length = mark;
+      if (!esAmbulatorioHoy(Y)) {
+        const S2 = slotAlternativo(Y, occ, P);
+        if (S2) {
+          movimientos.push({ ses: occ, paciente: Y, P, d: occ.disciplina, moverA: S2 });
+          movimientos.push({ ses, paciente, P, d });
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  for (nivel = 0; nivel <= 2; nivel++) {
+    movimientos.length = 0;
+    if (!buscar(pac, null, new Set())) continue;
+
+    // Aplicar los movimientos (con instantánea para revertir si la asignación final falla)
+    const snapSes = [...sesiones];
+    const snapProf = Object.fromEntries(Object.entries(profSlotsHoy).map(([k, v]) => [k, { ...v }]));
+    const snapPac  = Object.fromEntries(Object.entries(patientSlots).map(([k, v]) => [k, { ...v }]));
+    const restaurar = () => {
+      sesiones.length = 0; sesiones.push(...snapSes);
+      Object.keys(profSlotsHoy).forEach(k => { profSlotsHoy[k] = snapProf[k] || {}; });
+      Object.keys(patientSlots).forEach(k => { patientSlots[k] = snapPac[k] || {}; });
+    };
+
+    let nueva = null;
+    for (const m of movimientos) {
+      if (!m.ses) { nueva = m; continue; }
+      const i = sesiones.findIndex(x => x.id === m.ses.id);
+      if (m.moverA) {
+        sesiones[i] = { ...m.ses, slotId: m.moverA.id, inicio: m.moverA.inicio, fin: m.moverA.fin, origen: 'automatico_mejora' };
+        delete profSlotsHoy[m.P.id][slot.id];
+        profSlotsHoy[m.P.id][m.moverA.id] = m.ses.id;
+        delete patientSlots[m.paciente.id][slot.id];
+        patientSlots[m.paciente.id][m.moverA.id] = m.ses.id;
+      } else {
+        const viejoProf = m.ses.profesionalId;
+        sesiones[i] = { ...m.ses, profesionalId: m.P.id, disciplina: m.d, origen: 'automatico_mejora' };
+        if (profSlotsHoy[viejoProf]?.[slot.id] === m.ses.id) delete profSlotsHoy[viejoProf][slot.id];
+        profSlotsHoy[m.P.id][slot.id] = m.ses.id;
+      }
+    }
+    const nec = { tipo: 'cierre_ventana', disciplina: nueva.d, esAlmuerzo: false, slotForzado: slot.id,
+                  urgente: false, profesionalId: nueva.P.id };
+    for (const tier of _TIERS_CESION) {
+      const res = intentarAsignar(nec, pac, sesiones, profSlotsHoy, patientSlots, profsDisponibles,
+        fecha, sesionesEstaSemana, { ...ctx, relajar: tier });
+      if (res.ok) {
+        _registrarSesionEnMapas(res.sesion, sesiones, profSlotsHoy, patientSlots, profsDisponibles, ctx);
+        return true;
+      }
+    }
+    restaurar();
+  }
+  return false;
 }
 
 // ─── Índice de calidad de agenda ─────────────────────────────────────────────
@@ -577,8 +813,7 @@ function calcularIndiceCalidad(sesiones, pacientes, fecha) {
 
 // ─── Generación principal ─────────────────────────────────────────────────────
 
-// Total de slots disponibles de un profesional en la semana
-// Devuelve 'dia' | 'manana' | 'tarde' | null según la presencia del profesional en el día.
+// Devuelve 'habitual' | 'dia' | { ingreso, retiro } | null según la presencia del profesional en el día.
 // Lee el nuevo campo presenciaProfesionales con fallback al array legacy profesionalesPresentes.
 function _getPresencia(estado, profId, fecha) {
   if (estado && 'presenciaProfesionales' in estado)
@@ -593,34 +828,189 @@ function _getPresencia(estado, profId, fecha) {
   return null;
 }
 
-// Devuelve true si el profesional puede trabajar en el slot dado.
-// slotId es opcional pero necesario para validar rangos horarios custom.
-function _profEnTurno(estado, profId, slotTurno, fecha, slotId) {
-  const pres = _getPresencia(estado, profId, fecha);
-  if (!pres) return false;
-  // Habitual o legacy: los slots del perfil se validan por separado en _profDisponibleEnSlot
-  if (pres === 'habitual' || pres === 'dia') return true;
-  // Rango horario custom: evaluar ANTES que los shortcuts de turno para no bypass-ear el rango
-  if (typeof pres === 'object' && pres.ingreso && pres.retiro) {
-    const slot = SLOTS.find(s => s.id === slotId);
-    if (!slot) return true;
-    return slot.inicio >= pres.ingreso && slot.inicio < pres.retiro;
-  }
-  if (slotTurno === 'almuerzo') return true;
-  if (pres === 'manana' || pres === 'tarde') return pres === slotTurno;
-  return true;
+// Presencia con rango horario puntual del día: { ingreso:'HH:00', retiro:'HH:00' }.
+function _presenciaConRango(pres) {
+  return typeof pres === 'object' && pres !== null && !!pres.ingreso && !!pres.retiro;
 }
 
+// Única fuente de verdad de "¿puede este profesional atender en este slot de este día?".
+// Devuelve { ok, razon }. Reglas:
+//   · Tiene que estar presente ese día (panel de disponibilidad).
+//   · Si el operario indicó ingreso/retiro para ese día, ese rango REEMPLAZA al
+//     horario habitual (puede acortarlo o alargarlo). El panel no distingue el 13:00,
+//     así que con rango el profesional queda fuera de ese slot.
+//   · Con "horario habitual", se usa el perfil: solo los slots tildados (el 13:00 es opt-in).
+//     Un día sin horarios cargados en el perfil (presencia marcada a mano en un día no
+//     laboral) cubre el día completo salvo el 13:00.
+//   · Sin bloqueo coyuntural del profesional en ese slot.
+// No mira ocupación por otras sesiones ni "excluir del armado automático".
+function _disponibilidadProfSlot(prof, estado, slot, fecha) {
+  if (!prof || !slot) return { ok: false, razon: 'Profesional o horario inexistente' };
+  const pres = _getPresencia(estado, prof.id, fecha);
+  if (!pres) return { ok: false, razon: 'No está presente ese día' };
+
+  const bloq = ((estado?.bloqueosProfesionales || {})[prof.id] || []).find(b => b.slotId === slot.id);
+  if (bloq) return { ok: false, razon: 'Tiene el horario bloqueado' + (bloq.motivo ? ` (${bloq.motivo})` : '') };
+
+  if (_presenciaConRango(pres)) {
+    if (slot.id === SLOT_SOLO_PERFIL)
+      return { ok: false, razon: 'Cambió su horario ese día: las 13:00 solo se usan con el horario habitual' };
+    if (slot.inicio >= pres.ingreso && slot.fin <= pres.retiro) return { ok: true };
+    return { ok: false, razon: `Fuera del horario del día (${pres.ingreso}–${pres.retiro})` };
+  }
+
+  const dia = _weekday(fecha);
+  const horarios = (prof.horariosPorDia || {})[dia] || [];
+  const base = horarios.length > 0
+    ? horarios
+    : ((prof.diasLaborales || []).includes(dia) ? [] : SLOTS_DIA_DEFAULT);
+  if (base.includes(slot.id)) return { ok: true };
+  return { ok: false, razon: slot.id === SLOT_SOLO_PERFIL
+    ? 'No tiene tildadas las 13:00 en su perfil'
+    : 'Fuera de su horario habitual' };
+}
+
+// Compatibilidad: el resto del código llama a esto con (estado, profId, turno, fecha, slotId).
+function _profEnTurno(estado, profId, slotTurno, fecha, slotId) {
+  const prof = Profesionales.porId(profId);
+  const slot = SLOTS.find(s => s.id === slotId);
+  return _disponibilidadProfSlot(prof, estado, slot, fecha).ok;
+}
+
+// Profesionales presentes y libres (sin sesión) en cada slot del día, para el
+// panel "Disponibles" y el PDF. Excluye a los marcados "excluir del armado automático".
+function profesionalesLibresPorSlot(fecha, sesiones) {
+  const estado = DiasState.delDia(fecha);
+  const excluidos = estado.profesionalesExcluidos || [];
+  const profs = Profesionales.todos().filter(p => p.activo !== false && !excluidos.includes(p.id) && _getPresencia(estado, p.id, fecha));
+  const libres = {};
+  SLOTS.forEach(slot => {
+    const ocupados = new Set();
+    sesiones.filter(x => x.slotId === slot.id).forEach(x => {
+      ocupados.add(x.profesionalId);
+      (x.profesionalesAdicionales || []).forEach(id => ocupados.add(id));
+    });
+    libres[slot.id] = profs.filter(p => !ocupados.has(p.id) && _disponibilidadProfSlot(p, estado, slot, fecha).ok);
+  });
+  return libres;
+}
+
+// Profesionales activos que pueden atender en ese slot y día (para los desplegables
+// de asignación manual). Incluye a los "excluidos del armado automático" y deja
+// afuera a los ya ocupados en ese horario. Si disciplina viene, filtra por ella.
+function profesionalesDisponiblesParaSlot(fecha, slotId, disciplina, opciones = {}) {
+  const { ignorarSesionId = null } = opciones;
+  const estado = DiasState.delDia(fecha);
+  const slot = SLOTS.find(s => s.id === slotId);
+  if (!slot) return [];
+  const sesiones = Asignaciones.delDia(fecha).filter(s => s.slotId === slotId && s.id !== ignorarSesionId);
+  const ocupados = new Set();
+  sesiones.forEach(s => {
+    // KTR dual: un kinesiólogo respiratorio con una sola sesión KTR puede recibir un segundo paciente
+    if (disciplina === 'kinesiologiaRespiratoria' && s.disciplina === 'kinesiologiaRespiratoria'
+        && sesiones.filter(x => x.profesionalId === s.profesionalId).length < 2) return;
+    ocupados.add(s.profesionalId);
+    (s.profesionalesAdicionales || []).forEach(id => ocupados.add(id));
+  });
+  return Profesionales.activos().filter(p =>
+    (!disciplina || (p.disciplinas || []).includes(disciplina)) &&
+    !ocupados.has(p.id) &&
+    _disponibilidadProfSlot(p, estado, slot, fecha).ok
+  );
+}
+
+// Total de slots disponibles de un profesional en la semana
 function _totalSlotsSemanales(prof) {
   const dias = prof.diasLaborales || [];
-  if (dias.length === 0) return SLOTS.filter(s => !s.esAlmuerzo).length;
+  if (dias.length === 0) return SLOTS_DIA_DEFAULT.length;
   return dias.reduce((total, d) => {
     const horarios = (prof.horariosPorDia || {})[d];
-    const slotsDelDia = horarios && horarios.length > 0
-      ? horarios.filter(sid => { const s = SLOTS.find(x => x.id === sid); return s && !s.esAlmuerzo; })
-      : SLOTS.filter(s => !s.esAlmuerzo).map(s => s.id);
-    return total + slotsDelDia.length;
+    return total + (horarios && horarios.length > 0 ? horarios.length : SLOTS_DIA_DEFAULT.length);
   }, 0);
+}
+
+// Asigna las necesidades del día de un paciente. Si es un ambulatorio presente,
+// además cierra su ventana (ver _completarVentanaAmbulatoria): no puede quedar
+// un slot sin sesión dentro de su horario de asistencia.
+// S = { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas }
+function _asignarPacienteDia(paciente, S) {
+  const { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas } = S;
+  const diaActual = _weekday(fecha);
+  const semana = limitesDeSemana(fecha);
+  if (paciente.esAmbulatorio && !(paciente.diasAsistencia || []).includes(diaActual)) return;
+
+  const esAmb = !!_ventanaAmbulatoria(paciente, diaActual);
+  const fijasDelPac = sesiones.filter(s => s.fijo === true && s.pacienteId === paciente.id).length;
+  // Ambulatorio: tantas sesiones como slots libres tenga su ventana. Resto: objetivo fijo.
+  const horasNecesarias = esAmb
+    ? Math.max(0, _horasObjetivoPaciente(paciente, estado, diaActual) - fijasDelPac)
+    : HORAS_OBJETIVO_DIA;
+  // Saltear pacientes cuyos slots fijos ya cubrieron todas las necesidades
+  if (!esAmb && fijasDelPac >= HORAS_OBJETIVO_DIA) return;
+
+  const plan = Planes.delPaciente(paciente.id);
+  const prescripciones = (estado.prescripcionesUrgentes || {})[paciente.id] || [];
+
+  // Sesiones ya hechas esta semana (antes de hoy) para calcular proporción
+  const sesionesEstaSemana = Asignaciones.delPacienteEnSemana(paciente.id, semana.inicio, semana.fin);
+  const conteoSemanal = {};
+  sesionesEstaSemana
+    .filter(s => s.fecha < fecha)
+    .forEach(s => { conteoSemanal[s.disciplina] = (conteoSemanal[s.disciplina] || 0) + 1; });
+
+  const necesidades = construirNecesidades(
+    paciente, plan, conteoSemanal, prescripciones, fecha, horasNecesarias
+  );
+
+  const ctx = { coordSesEstaSemana };
+  let horasAsignadas = 0;
+
+  for (const nec of necesidades) {
+    const resultado = intentarAsignar(
+      nec, paciente, sesiones, profSlotsHoy,
+      patientSlots, profsDisponibles, fecha, sesionesEstaSemana, ctx
+    );
+
+    if (resultado.ok) {
+      _registrarSesionEnMapas(resultado.sesion, sesiones, profSlotsHoy, patientSlots, profsDisponibles, ctx);
+      horasAsignadas++;
+    } else {
+      alertas.push({
+        tipo: resultado.razon,
+        pacienteId: paciente.id,
+        pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+        disciplina: nec.disciplina,
+        msg: resultado.msg
+      });
+    }
+  }
+
+  if (esAmb) {
+    const antes = sesiones.length;
+    const sinCubrir = _completarVentanaAmbulatoria(
+      paciente, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, sesionesEstaSemana, ctx);
+    horasAsignadas += sesiones.length - antes;
+    sinCubrir.forEach(slot => alertas.push({
+      tipo: 'ambulatorio_hueco',
+      pacienteId: paciente.id,
+      pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+      slotId: slot.id,
+      msg: `${paciente.nombre} ${paciente.apellido} (ambulatorio): sin sesión a las ${slot.label} — ` +
+           `no hay profesional disponible con una disciplina de su plan. Revisá la carga de datos.`
+    }));
+  }
+
+  const objetivo = esAmb ? horasNecesarias : HORAS_OBJETIVO_DIA;
+  if (horasAsignadas < objetivo) {
+    alertas.push({
+      tipo: 'deficit_horas',
+      pacienteId: paciente.id,
+      pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+      horasAsignadas,
+      horasObjetivo: objetivo,
+      msg: `${paciente.nombre} ${paciente.apellido}: ${horasAsignadas}/${objetivo} horas asignadas`
+    });
+  }
 }
 
 function generarAgenda(fecha, opciones = {}) {
@@ -715,103 +1105,23 @@ function generarAgenda(fecha, opciones = {}) {
   const diaActual = _weekday(fecha);
 
   // Bloquear slots fuera de la ventana de asistencia ambulatoria
-  todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio) return;
-    if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const horario = _horarioAmbulatorioDia(p, diaActual);
-    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
-    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
-    if (iIng < 0 || iEgr < 0) return;
-    SLOTS.forEach((s, i) => {
-      if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
-        patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
-    });
-  });
-
-  // Bloquear slot_12 para pacientes que almuerzan sin terapista
-  todosPacientes.forEach(p => {
-    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
-      patientSlots[p.id]['slot_12'] = 'ALMUERZO';
-  });
+  _aplicarVentanaAmbulatoria(patientSlots, todosPacientes, diaActual);
 
   // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
     _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
   });
 
-  for (const paciente of pacientesOrdenados) {
-    if (paciente.esAmbulatorio) {
-      if (!(paciente.diasAsistencia || []).includes(diaActual)) continue;
-    }
-    // Saltear pacientes cuyos slots fijos ya cubrieron todas las necesidades
-    const sesionesFijasDelPac = sesionesFijas.filter(s => s.pacienteId === paciente.id);
-    if (sesionesFijasDelPac.length >= HORAS_OBJETIVO_DIA) continue;
+  // Los ambulatorios presentes se resuelven primero (siempre, también en las
+  // rotaciones de generarAgendaOptima): no pueden quedar con slots sin cubrir.
+  const _presenteAmb = p => !!_ventanaAmbulatoria(p, diaActual);
+  const ordenFinal = [
+    ...pacientesOrdenados.filter(_presenteAmb),
+    ...pacientesOrdenados.filter(p => !_presenteAmb(p))
+  ];
 
-    const plan = Planes.delPaciente(paciente.id);
-    const prescripciones = (estado.prescripcionesUrgentes || {})[paciente.id] || [];
-
-    // Sesiones ya hechas esta semana (antes de hoy) para calcular proporción
-    const sesionesEstaSemana = Asignaciones.delPacienteEnSemana(
-      paciente.id, semana.inicio, semana.fin
-    );
-    const conteoSemanal = {};
-    sesionesEstaSemana
-      .filter(s => s.fecha < fecha)
-      .forEach(s => { conteoSemanal[s.disciplina] = (conteoSemanal[s.disciplina] || 0) + 1; });
-
-    const necesidades = construirNecesidades(
-      paciente, plan, conteoSemanal, prescripciones, fecha
-    );
-
-    let horasAsignadas = 0;
-
-    for (const nec of necesidades) {
-      const resultado = intentarAsignar(
-        nec, paciente, sesiones, profSlotsHoy,
-        patientSlots, profsDisponibles, fecha, sesionesEstaSemana,
-        { coordSesEstaSemana }
-      );
-
-      if (resultado.ok) {
-        sesiones.push(resultado.sesion);
-        patientSlots[paciente.id][resultado.sesion.slotId] = resultado.sesion.id;
-        // Registro de carga: KTR dual puede tener dos sesiones en el mismo slot
-        const profId  = resultado.sesion.profesionalId;
-        const slotId  = resultado.sesion.slotId;
-        const existing = profSlotsHoy[profId]?.[slotId];
-        if (existing) {
-          profSlotsHoy[profId][slotId] = [existing, resultado.sesion.id]; // dual KTR
-        } else {
-          profSlotsHoy[profId][slotId] = resultado.sesion.id;
-        }
-        // Actualizar conteo semanal de coordinador
-        if (profsDisponibles.find(p => p.id === profId)?.esCoordinador) {
-          coordSesEstaSemana[profId] = (coordSesEstaSemana[profId] || 0) + 1;
-        }
-        horasAsignadas++;
-      } else {
-        alertas.push({
-          tipo: resultado.razon,
-          pacienteId: paciente.id,
-          pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
-          disciplina: nec.disciplina,
-          msg: resultado.msg
-        });
-      }
-    }
-
-    if (horasAsignadas < HORAS_OBJETIVO_DIA) {
-      alertas.push({
-        tipo: 'deficit_horas',
-        pacienteId: paciente.id,
-        pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
-        horasAsignadas,
-        horasObjetivo: HORAS_OBJETIVO_DIA,
-        msg: `${paciente.nombre} ${paciente.apellido}: ${horasAsignadas}/${HORAS_OBJETIVO_DIA} horas asignadas`
-      });
-    }
-  }
+  const S = { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas };
+  for (const paciente of ordenFinal) _asignarPacienteDia(paciente, S);
 
   // Persistir solo si no es una corrida de comparación
   if (persistir) {
@@ -958,25 +1268,7 @@ function generarAgendaSlotPorSlot(fecha) {
     });
   });
   // Bloquear slots fuera de la ventana de asistencia ambulatoria
-  todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio) return;
-    if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const horario = _horarioAmbulatorioDia(p, diaActual);
-    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
-    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
-    if (iIng < 0 || iEgr < 0) return;
-    SLOTS.forEach((s, i) => {
-      if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
-        patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
-    });
-  });
-
-  // Bloquear slot_12 para pacientes que almuerzan sin terapista
-  todosPacientes.forEach(p => {
-    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
-      patientSlots[p.id]['slot_12'] = 'ALMUERZO';
-  });
+  _aplicarVentanaAmbulatoria(patientSlots, todosPacientes, diaActual);
 
   // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
@@ -1006,10 +1298,13 @@ function generarAgendaSlotPorSlot(fecha) {
   const remainingNeeds  = {};   // { pacId: { disc: count } }
   const sesSemanaMap    = {};   // { pacId: sesión[] }
   const pacientesActivos = [];
+  const ambulatoriosConVentana = [];
 
   for (const pac of todosPacientes) {
     if (pac.esAmbulatorio) {
       if (!(pac.diasAsistencia || []).includes(diaActual)) continue;
+      // Ambulatorios con ventana definida: se resuelven primero y por completo (ver más abajo)
+      if (_ventanaAmbulatoria(pac, diaActual)) { ambulatoriosConVentana.push(pac); continue; }
     }
     const fijasDelPac = sesionesFijas.filter(s => s.pacienteId === pac.id);
     if (fijasDelPac.length >= HORAS_OBJETIVO_DIA) continue;
@@ -1037,6 +1332,13 @@ function generarAgendaSlotPorSlot(fecha) {
 
   const sesiones = [...sesionesFijas];
 
+  // ── Ambulatorios primero: sesión en cada slot libre de su ventana ──
+  const alertasAmb = [];
+  const _S = { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas: alertasAmb };
+  [...ambulatoriosConVentana]
+    .sort((a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a))
+    .forEach(pac => _asignarPacienteDia(pac, _S));
+
   // ── Helpers ──
   function _registrar(sesion) {
     sesiones.push(sesion);
@@ -1049,14 +1351,9 @@ function generarAgendaSlotPorSlot(fecha) {
       remainingNeeds[sesion.pacienteId][sesion.disciplina]--;
   }
 
+  // Horario del profesional (perfil / rango del día / bloqueos) lo valida _profEnTurno;
+  // acá solo la cuota semanal de coordinadores.
   function _profDisponibleEnSlot(prof, slot) {
-    const pres = _getPresencia(estado, prof.id, fecha);
-    // Con rango custom el turno ya lo valida _profEnTurno; no aplicar horariosPorDia
-    const esCustom = typeof pres === 'object' && pres !== null && pres.ingreso && pres.retiro;
-    if (!esCustom) {
-      const horarios = (prof.horariosPorDia || {})[diaActual];
-      if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
-    }
     if (prof.esCoordinador) {
       const maxSemana = _totalSlotsSemanales(prof) - 1;
       if ((coordSesEstaSemana[prof.id] || 0) >= maxSemana) return false;
@@ -1126,7 +1423,8 @@ function generarAgendaSlotPorSlot(fecha) {
           urgente: false, creadoEn: new Date().toISOString()
         });
       }
-      continue;
+      // El 12:00 sigue con las disciplinas regulares para quienes no lo tienen
+      // reservado (ver _esSlotExcluidoDeAuto en el filtro de candidatos).
     }
 
     // Higiene matutina forzada a slot_09
@@ -1179,6 +1477,7 @@ function generarAgendaSlotPorSlot(fecha) {
         const candidatos = pacientesActivos.filter(pac => {
           if (!(remainingNeeds[pac.id]?.[disc] > 0)) return false;
           if (patientSlots[pac.id][slot.id]) return false;
+          if (_esSlotExcluidoDeAuto(pac, slot)) return false;
           if (_generaConsecutividad(pac.id, disc, slotIdx, sesiones)) return false;
           if (prof.grupoExclusivo && pac.grupo !== prof.grupoExclusivo) return false;
           if ((pac.exclusionesProfesionales || []).includes(prof.id)) return false;
@@ -1217,7 +1516,7 @@ function generarAgendaSlotPorSlot(fecha) {
   });
 
   const metricas = calcularMetricas(sesiones, todosPacientes);
-  return { sesiones, alertas: [], metricas };
+  return { sesiones, alertas: alertasAmb, metricas };
 }
 
 // ─── Mejora local (post-greedy) ───────────────────────────────────────────────
@@ -1275,25 +1574,7 @@ function mejoraLocal(fecha) {
     }
     // Bloquear slots fuera de la ventana de asistencia ambulatoria
     const _diaActual = _weekday(fecha);
-    todosPacientes.forEach(p => {
-      if (!p.esAmbulatorio) return;
-      if (!(p.diasAsistencia || []).includes(_diaActual)) return;
-      const horario = _horarioAmbulatorioDia(p, _diaActual);
-      if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
-      const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
-      const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
-      if (iIng < 0 || iEgr < 0) return;
-      SLOTS.forEach((s, i) => {
-        if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id])
-          patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
-      });
-    });
-
-    // Bloquear slot_12 para pacientes que almuerzan sin terapista
-    todosPacientes.forEach(p => {
-      if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
-        patientSlots[p.id]['slot_12'] = 'ALMUERZO';
-    });
+    _aplicarVentanaAmbulatoria(patientSlots, todosPacientes, _diaActual);
 
     // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
     todosPacientes.forEach(p => {
@@ -1392,8 +1673,6 @@ function mejoraLocal(fecha) {
             s => s.profesionalId === prof.id && !s.esAlmuerzo
           );
 
-          const diaNumSwap = _weekday(fecha);
-
           for (const sesObstáculo of sesDelProf) {
             if (swapEncontrado) break;
 
@@ -1408,6 +1687,7 @@ function mejoraLocal(fecha) {
             const slotLiberadoDef = SLOTS.find(s => s.id === sesObstáculo.slotId);
             if (!slotLiberadoDef) continue;
             if (!_profEnTurno(estado, prof.id, slotLiberadoDef.turno, fecha, slotLiberadoDef.id)) continue;
+            if (_esSlotExcluidoDeAuto(pac, slotLiberadoDef)) continue;
 
             // El slot liberado no puede quedar adyacente a otra sesión de la
             // misma disciplina que ya tenga nuestro paciente
@@ -1419,21 +1699,13 @@ function mejoraLocal(fecha) {
             if (!pacDonor) continue;
 
             for (const nuevoSlot of SLOTS) {
-              if (nuevoSlot.esAlmuerzo) continue;
+              if (_esSlotExcluidoDeAuto(pacDonor, nuevoSlot)) continue;
               if (nuevoSlot.id === sesObstáculo.slotId) continue;
               if (profSlotsHoy[prof.id]?.[nuevoSlot.id]) continue;        // prof ocupado ahí
               if (patientSlots[pacDonor.id]?.[nuevoSlot.id]) continue;    // donor ocupado/bloqueado
 
               // Verificar que el prof puede trabajar en el turno del nuevo slot
               if (!_profEnTurno(estado, prof.id, nuevoSlot.turno, fecha, nuevoSlot.id)) continue;
-
-              // Verificar horario específico del prof en el nuevo slot
-              const presSwap = _getPresencia(estado, prof.id, fecha);
-              const esCustomSwap = typeof presSwap === 'object' && presSwap !== null && presSwap.ingreso && presSwap.retiro;
-              if (!esCustomSwap) {
-                const horariosProf = (prof.horariosPorDia || {})[diaNumSwap];
-                if (horariosProf && horariosProf.length > 0 && !horariosProf.includes(nuevoSlot.id)) continue;
-              }
 
               // Que el donante tampoco quede con la misma disciplina en slots consecutivos
               const idxNuevo = SLOTS.findIndex(s => s.id === nuevoSlot.id);
@@ -1541,22 +1813,7 @@ function _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacie
       });
     }
   }
-  todosPacientes.forEach(p => {
-    if (!p.esAmbulatorio) return;
-    if (!(p.diasAsistencia || []).includes(diaActual)) return;
-    const horario = _horarioAmbulatorioDia(p, diaActual);
-    if (!horario || !horario.slotIngreso || !horario.slotEgreso) return;
-    const iIng = SLOTS.findIndex(s => s.id === horario.slotIngreso);
-    const iEgr = SLOTS.findIndex(s => s.id === horario.slotEgreso);
-    if (iIng < 0 || iEgr < 0) return;
-    SLOTS.forEach((s, i) => {
-      if (!s.esAlmuerzo && (i < iIng || i > iEgr) && !patientSlots[p.id][s.id]) patientSlots[p.id][s.id] = 'BLOQ_HORARIO_AMB';
-    });
-  });
-  todosPacientes.forEach(p => {
-    if (p.almuerza !== false && !p.requiereAlmuerzoTerapeutico && !patientSlots[p.id]['slot_12'])
-      patientSlots[p.id]['slot_12'] = 'ALMUERZO';
-  });
+  _aplicarVentanaAmbulatoria(patientSlots, todosPacientes, diaActual);
   todosPacientes.forEach(p => {
     _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
   });
@@ -1607,7 +1864,8 @@ function detectarHuecosRellenables(fecha) {
   const sesionesHoy = Asignaciones.delDia(fecha);
   const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacientes);
 
-  const pacientesConAgenda = todosPacientes.filter(p => sesionesHoy.some(s => s.pacienteId === p.id));
+  const pacientesConAgenda = todosPacientes.filter(p =>
+    sesionesHoy.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual));
   const pacientesOrdenados = [...pacientesConAgenda].sort(
     (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
   );
@@ -1620,8 +1878,7 @@ function detectarHuecosRellenables(fecha) {
     if (discsPlan.length === 0) return;
 
     SLOTS.forEach(slot => {
-      if (slot.esAlmuerzo) return;
-      if (slot.soloManual) return;
+      if (_esSlotExcluidoDeAuto(pac, slot)) return;
       if (patientSlots[pac.id]?.[slot.id]) return;
       const hayCandidato = discsPlan.some(disc =>
         profsDisponibles.some(p =>
@@ -1649,7 +1906,8 @@ function rellenarEspaciosVaciosAuto(fecha) {
   let sesiones = [...Asignaciones.delDia(fecha)];
   if (!sesiones.length) return { sesionesAgregadas: 0, detalles: [] };
 
-  const pacientesConAgenda = todosPacientes.filter(p => sesiones.some(s => s.pacienteId === p.id));
+  const pacientesConAgenda = todosPacientes.filter(p =>
+    sesiones.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual));
   const pacientesOrdenados = [...pacientesConAgenda].sort(
     (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
   );
@@ -1663,9 +1921,27 @@ function rellenarEspaciosVaciosAuto(fecha) {
     const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);
     if (discsOrdenadas.length === 0) return;
 
+    // Ambulatorio con ventana: se cierra por completo (cede restricciones y reubica si hace falta)
+    if (_ventanaAmbulatoria(pac, diaActual)) {
+      const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesiones, profsDisponibles, todosPacientes);
+      const sessSemana = Asignaciones.delPacienteEnSemana(pac.id, semana.inicio, semana.fin);
+      const antes = sesiones.length;
+      _completarVentanaAmbulatoria(pac, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, sessSemana, {});
+      for (let i = antes; i < sesiones.length; i++) {
+        sesiones[i] = { ...sesiones[i], origen: 'automatico_relleno', fijo: false };
+        sesionesAgregadas++;
+        const slot = SLOTS.find(sl => sl.id === sesiones[i].slotId);
+        const prof = Profesionales.porId(sesiones[i].profesionalId);
+        detalles.push(
+          `+ ${discLabel(sesiones[i].disciplina)} → ${pac.nombre} ${pac.apellido} ` +
+          `(${slot?.label}, ${prof ? Profesionales.nombreCompleto(prof) : '?'})`
+        );
+      }
+      return;
+    }
+
     SLOTS.forEach(slot => {
-      if (slot.esAlmuerzo) return;
-      if (slot.soloManual) return;
+      if (_esSlotExcluidoDeAuto(pac, slot)) return;
 
       const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesiones, profsDisponibles, todosPacientes);
       if (patientSlots[pac.id]?.[slot.id]) return;
@@ -1766,4 +2042,73 @@ function calcularMetricas(sesiones, pacientes) {
   });
 
   return { porPaciente, porProfesional };
+}
+
+// ─── Verificación previa de cobertura ambulatoria ─────────────────────────────
+//
+// Antes de generar: avisa si los datos cargados hacen imposible que un
+// ambulatorio presente quede con todos los slots de su ventana cubiertos
+// (ventana sin definir, plan vacío, o slots donde no hay suficientes
+// profesionales disponibles con disciplinas de los planes). Sirve para
+// detectar errores de carga; devuelve una lista de textos (vacía si todo ok).
+function verificarCoberturaAmbulatorios(fecha) {
+  const estado = DiasState.delDia(fecha);
+  const dia = _weekday(fecha);
+  const profs = _profsDisponiblesDelDia(fecha);
+  const avisos = [];
+  const infos = [];
+
+  Pacientes.activos()
+    .filter(p => p.esAmbulatorio && (p.diasAsistencia || []).includes(dia))
+    .forEach(pac => {
+      const nombre = `${pac.apellido}, ${pac.nombre}`;
+      const v = _ventanaAmbulatoria(pac, dia);
+      if (!v) {
+        avisos.push(`${nombre}: es ambulatorio y asiste este día pero no tiene horario de ingreso/egreso definido.`);
+        return;
+      }
+      const plan = Planes.delPaciente(pac.id);
+      const discs = Object.keys(plan).filter(d => (plan[d] || 0) > 0);
+      if (discs.length === 0) {
+        avisos.push(`${nombre}: es ambulatorio pero no tiene disciplinas en su plan semanal.`);
+        return;
+      }
+      const bloq = _slotsBloqueadosPaciente(pac, estado, dia);
+      const libres = [];
+      for (let i = v.iIng; i <= v.iEgr; i++) if (!bloq[SLOTS[i].id]) libres.push(SLOTS[i].id);
+      infos.push({ pac, nombre, discs, libres });
+    });
+
+  SLOTS.forEach(slot => {
+    const necesitan = infos.filter(i => i.libres.includes(slot.id));
+    if (necesitan.length === 0) return;
+    // Nodos de profesionales: los de KTR pueden atender 2 pacientes (dual)
+    const nodos = [];
+    profs.filter(p => _disponibilidadProfSlot(p, estado, slot, fecha).ok).forEach(p => {
+      nodos.push({ p, soloKtr: false });
+      if ((p.disciplinas || []).includes('kinesiologiaRespiratoria')) nodos.push({ p, soloKtr: true });
+    });
+    // El segundo cupo de KTR (dual) exige paciente con edificio y que no bloquee KTR compartido
+    const compatible = (info, nodo) => info.discs.some(d =>
+      (nodo.p.disciplinas || []).includes(d) &&
+      (!nodo.soloKtr || (d === 'kinesiologiaRespiratoria' && !!info.pac.edificio && !info.pac.bloqueaKTR)));
+
+    // Matching bipartito (Kuhn): pacientes → nodos de profesional
+    const asignadoA = new Array(nodos.length).fill(-1);
+    const intentar = (i, vistos) => {
+      for (let j = 0; j < nodos.length; j++) {
+        if (vistos[j] || !compatible(necesitan[i], nodos[j])) continue;
+        vistos[j] = true;
+        if (asignadoA[j] < 0 || intentar(asignadoA[j], vistos)) { asignadoA[j] = i; return true; }
+      }
+      return false;
+    };
+    const sinProf = necesitan.filter((_, i) => !intentar(i, new Array(nodos.length).fill(false)));
+    if (sinProf.length > 0) {
+      avisos.push(`${slot.label}: ${necesitan.length} ambulatorio(s) presentes y faltan profesionales disponibles con ` +
+        `disciplinas de su plan (sin cobertura posible: ${sinProf.map(i => i.nombre).join(', ')}).`);
+    }
+  });
+
+  return avisos;
 }

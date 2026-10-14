@@ -128,6 +128,31 @@ async function _sincronizarConSupabase(campo, valor) {
   }
 }
 
+// ─── Formato de horarios de profesionales (horariosPorDia) ────────────────────
+// Antes, un día laboral sin slots cargados significaba "sin restricción" (todos
+// los slots) y el perfil no tenía columna 13:00 (el dato podía existir oculto).
+// Ahora un día laboral solo cubre los slots tildados y el 13:00 es opt-in.
+// El marcador de versión viaja DENTRO de horariosPorDia (_v) para que también
+// se conserve cuando el profesional edita su perfil por RPC (campo permitido).
+
+let _hayHorariosSinMigrar = false;
+
+function _horariosMigrados(p) {
+  return !!p && !!p.horariosPorDia && p.horariosPorDia._v >= HORARIOS_VERSION;
+}
+
+// Pura: devuelve el profesional con horarios en el formato vigente (o el mismo si ya lo está).
+function _normalizarHorariosProf(p) {
+  if (!p || _horariosMigrados(p)) return p;
+  const horarios = {};
+  (p.diasLaborales || []).forEach(d => {
+    const sin13 = ((p.horariosPorDia || {})[d] || []).filter(sid => sid !== SLOT_SOLO_PERFIL);
+    horarios[d] = sin13.length ? sin13 : [...SLOTS_DIA_DEFAULT];
+  });
+  horarios._v = HORARIOS_VERSION;
+  return { ...p, horariosPorDia: horarios };
+}
+
 // ─── Carga inicial desde Supabase ──────────────────────────────────────────────
 // Se llama una vez al arrancar la app (después de requireAuth()), antes del
 // primer renderVista().
@@ -156,7 +181,8 @@ async function cargarDatosRemotos() {
   }
 
   _cache.pacientes     = (pac.data  || []).map(r => r.data);
-  _cache.profesionales = (prof.data || []).map(r => r.data);
+  _hayHorariosSinMigrar = (prof.data || []).some(r => !_horariosMigrados(r.data));
+  _cache.profesionales = (prof.data || []).map(r => _normalizarHorariosProf(r.data));
   _cache.planes        = Object.fromEntries((pln.data || []).map(r => [r.paciente_id, { sesiones: r.sesiones, meta: r.meta }]));
   _cache.diasState     = Object.fromEntries((dia.data || []).map(r => [r.fecha, r.data]));
   _cache.asignaciones  = Object.fromEntries((asig.data || []).map(r => [r.fecha, r.sesiones]));
@@ -273,7 +299,7 @@ const Profesionales = {
       grupoExclusivo: null,   // 'tec'|'acv'|'medular'|null — si != null, solo atiende ese grupo
       esPracticante: false,
       diasLaborales: [],      // días que trabaja habitualmente: [1,2,3,4,5] (1=Lun … 6=Sáb)
-      horariosPorDia: {},     // { dia: ['slot_09','slot_10',...] } — slots que asiste en cada día
+      horariosPorDia: { _v: HORARIOS_VERSION }, // { dia: ['slot_09','slot_10',...], _v } — slots que asiste cada día (el 13:00 es opt-in; ver _normalizarHorariosProf)
       esCoordinador: false,   // deja al menos 1 slot libre por semana
       ...datos
     };
@@ -510,7 +536,7 @@ const Asignaciones = {
       slotId,
       inicio:      slot?.inicio || '',
       fin:         slot?.fin    || '',
-      esAlmuerzo:  slot?.esAlmuerzo || false,
+      esAlmuerzo:  disciplina === '_almuerzo',
       origen:                'manual',
       puntaje:               null,
       motivo:                'Creada manualmente',
@@ -659,6 +685,15 @@ function migrarHigieneAlmuerzo() {
     return { ...resto, disciplinasHigiene: [], disciplinasAlmuerzo: [] };
   });
   escribirStorage(STORAGE_KEYS.pacientes, actualizados);
+}
+
+// Persiste la migración de horarios de profesionales (la normalización en memoria
+// ya la hace cargarDatosRemotos; esto la escribe en Supabase si el rol puede).
+function migrarHorariosProfesionales() {
+  if (!_hayHorariosSinMigrar) return;
+  _hayHorariosSinMigrar = false;
+  const profs = Profesionales.todos().map(_normalizarHorariosProf);
+  escribirStorage(STORAGE_KEYS.profesionales, profs);
 }
 
 // Convierte slotIngreso/slotEgreso (un horario único para todos los días)
