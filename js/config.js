@@ -101,13 +101,22 @@ const SLOTS = [
   { id: 'slot_10', inicio: '10:00', fin: '11:00', label: '10:00 – 11:00', turno: 'manana', esAlmuerzo: false },
   { id: 'slot_11', inicio: '11:00', fin: '12:00', label: '11:00 – 12:00', turno: 'manana', esAlmuerzo: false },
   { id: 'slot_12', inicio: '12:00', fin: '13:00', label: '12:00 – 13:00', turno: 'almuerzo', esAlmuerzo: true },
-  { id: 'slot_13', inicio: '13:00', fin: '14:00', label: '13:00 – 14:00', turno: 'almuerzo', esAlmuerzo: false, soloManual: true },
+  { id: 'slot_13', inicio: '13:00', fin: '14:00', label: '13:00 – 14:00', turno: 'almuerzo', esAlmuerzo: false },
   { id: 'slot_14', inicio: '14:00', fin: '15:00', label: '14:00 – 15:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_15', inicio: '15:00', fin: '16:00', label: '15:00 – 16:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_16', inicio: '16:00', fin: '17:00', label: '16:00 – 17:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_17', inicio: '17:00', fin: '18:00', label: '17:00 – 18:00', turno: 'tarde', esAlmuerzo: false },
   { id: 'slot_18', inicio: '18:00', fin: '19:00', label: '18:00 – 19:00', turno: 'tarde', esAlmuerzo: false }
 ];
+
+// Slots que un profesional cubre por defecto en un día laboral nuevo. El 13:00
+// queda afuera: es opt-in en el perfil (y el panel de disponibilidad, que solo
+// indica ingreso/egreso, no puede habilitarlo: ver _disponibilidadProfSlot).
+const SLOTS_DIA_DEFAULT = ['slot_08','slot_09','slot_10','slot_11','slot_12','slot_14','slot_15','slot_16','slot_17','slot_18'];
+const SLOT_SOLO_PERFIL = 'slot_13';
+
+// Versión del formato de horariosPorDia de los profesionales (ver migrarHorariosProfesionales).
+const HORARIOS_VERSION = 2;
 
 const HORAS_OBJETIVO_DIA = 6;
 const VENTANA_ROTACION_DIAS_ASISTENCIA = 3;

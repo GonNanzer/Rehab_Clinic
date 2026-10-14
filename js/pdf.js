@@ -8,31 +8,10 @@ function _pdf_buildDoc(sesiones, fecha, titulo, opciones) {
 
   const estado = DiasState.delDia(fecha);
 
-  // Profesionales libres por slot
+  // Profesionales libres por slot (presencia del día, horario habitual / rango, 13:00 opt-in y bloqueos)
   var libresBySlot = {};
   SLOTS.forEach(function(s) { libresBySlot[s.id] = []; });
-
-  if (opciones.mostrarDisponibles !== false) {
-    var idsPresentes = estado.profesionalesPresentes || [];
-    var idsExcluidos = estado.profesionalesExcluidos  || [];
-    var diaNum = _weekday(fecha);
-    var profsPresentes = Profesionales.todos().filter(function(p) {
-      return p.activo !== false && idsPresentes.includes(p.id) && !idsExcluidos.includes(p.id);
-    });
-    var busyBySlot = {};
-    SLOTS.forEach(function(s) {
-      busyBySlot[s.id] = new Set(sesiones.filter(function(x) { return x.slotId === s.id; }).map(function(x) { return x.profesionalId; }));
-    });
-    SLOTS.forEach(function(slot) {
-      if (slot.esAlmuerzo) return;
-      libresBySlot[slot.id] = profsPresentes.filter(function(p) {
-        if (busyBySlot[slot.id].has(p.id)) return false;
-        var horarios = (p.horariosPorDia || {})[diaNum];
-        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
-        return true;
-      });
-    });
-  }
+  if (opciones.mostrarDisponibles !== false) libresBySlot = profesionalesLibresPorSlot(fecha, sesiones);
   var hayDisponibles = Object.values(libresBySlot).some(function(arr) { return arr.length > 0; });
 
   // Déficits
@@ -108,7 +87,7 @@ function _pdf_buildDoc(sesiones, fecha, titulo, opciones) {
       if (bloqueados.has(slot.id)) {
         return '<td style="color:#dc2626;font-size:10px;text-align:center">✕</td>';
       }
-      if (slot.esAlmuerzo && (pac.almuerza ?? true) && !pac.requiereAlmuerzoTerapeutico) {
+      if (_esSlotExcluidoDeAuto(pac, slot) && !pac.requiereAlmuerzoTerapeutico) {
         return '<td style="color:#94a3b8;background:#f8fafc;font-size:8px">—</td>';
       }
       return '<td></td>';
@@ -209,9 +188,8 @@ function exportarListaProfPDF() {
   if (!prof) return;
 
   var sesiones = Asignaciones.delDia(fechaActiva).filter(function(s) { return s.profesionalId === prof.id; });
-  var dw       = _weekday(fechaActiva);
-  var horarios = (prof.horariosPorDia || {})[dw] || [];
-  var enHorario = function(slot) { return horarios.length === 0 || horarios.includes(slot.id); };
+  var estadoDia = DiasState.delDia(fechaActiva);
+  var enHorario = function(slot) { return _disponibilidadProfSlot(prof, estadoDia, slot, fechaActiva).ok; };
 
   var discsLabel = (prof.disciplinas || []).map(function(d) { return DISCIPLINAS[d] ? DISCIPLINAS[d].label : d; }).join(', ');
   var fechaLabel = new Date(fechaActiva + 'T12:00:00').toLocaleDateString('es-AR', {
@@ -235,11 +213,6 @@ function exportarListaProfPDF() {
         + '<td style="padding:8px 6px;width:72px"><span style="background:' + bg + ';color:' + color + ';border:1px solid ' + color + ';border-radius:4px;font-size:8px;font-weight:700;padding:2px 6px">' + esc(corto) + '</span></td>'
         + '<td style="padding:8px 6px;font-size:11px;font-weight:600">' + (ses.esAlmuerzo ? '🍽 ' : '') + esc(pac ? pac.apellido + ', ' + pac.nombre : '?') + '</td>'
         + '<td style="padding:8px 6px;font-size:9px;color:#64748b">' + (grupo ? grupo.label : '') + '</td>'
-        + '</tr>';
-    } else if (slot.esAlmuerzo) {
-      filas += '<tr style="background:#f8fafc;border-bottom:1px solid #f1f5f9">'
-        + '<td style="font-size:9px;color:#94a3b8;padding:8px 10px">' + esc(slot.label) + '</td>'
-        + '<td colspan="3" style="font-size:9px;color:#94a3b8;font-style:italic;padding:8px 6px">🍽 Almuerzo</td>'
         + '</tr>';
     } else if (enHorario(slot)) {
       filas += '<tr style="border-bottom:1px solid #f8fafc">'

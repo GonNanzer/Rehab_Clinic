@@ -235,33 +235,11 @@ function vistaGrilla() {
     sesiones.some(s => s.profesionalId === p.id)
   ).sort((a, b) => a.apellido.localeCompare(b.apellido));
 
-  // Profesionales presentes sin sesión por slot (para panel disponibles)
-  const _idsPresentes = _idsProfsPresentes(estado, fechaActiva);
-  const _idsExcluidos = estado.profesionalesExcluidos || [];
   const _diaNum = _weekday(fechaActiva);
-  const _profsPresentes = Profesionales.todos()
-    .filter(p => p.activo !== false && _idsPresentes.includes(p.id) && !_idsExcluidos.includes(p.id));
-  const _busyBySlot = {};
-  SLOTS.forEach(s => {
-    _busyBySlot[s.id] = new Set([
-      ...sesiones.filter(x => x.slotId === s.id).map(x => x.profesionalId),
-      ...sesiones.filter(x => x.slotId === s.id).flatMap(x => x.profesionalesAdicionales || [])
-    ]);
-  });
-  const _libresBySlot = {};
-  SLOTS.forEach(slot => {
-    _libresBySlot[slot.id] = _profsPresentes.filter(p => {
-      if (_busyBySlot[slot.id].has(p.id)) return false;
-      if (!_profEnTurno(estado, p.id, slot.turno, fechaActiva, slot.id)) return false;
-      const presLib = _getPresencia(estado, p.id, fechaActiva);
-      const esCustomLib = typeof presLib === 'object' && presLib !== null && presLib.ingreso && presLib.retiro;
-      if (!esCustomLib) {
-        const horarios = (p.horariosPorDia || {})[_diaNum];
-        if (horarios && horarios.length > 0 && !horarios.includes(slot.id)) return false;
-      }
-      return true;
-    });
-  });
+
+  // Profesionales presentes y libres por slot (para panel disponibles): respeta
+  // presencia del día, horario habitual / rango del día, 13:00 opt-in y bloqueos.
+  const _libresBySlot = profesionalesLibresPorSlot(fechaActiva, sesiones);
   const _hayDisponibles = Object.values(_libresBySlot).some(arr => arr.length > 0);
 
   let html = `
@@ -534,8 +512,13 @@ function vistaGrilla() {
             <div class="celda-prof">${iconOrigen}${esc(Profesionales.iniciales(prof))} ${esc(prof?.apellido || '')}</div>
             ${esRef ? '<div class="ref-badge">★ Ref.</div>' : ''}
           </td>`;
-        } else if (slot.esAlmuerzo && (pac.almuerza ?? true) && !pac.requiereAlmuerzoTerapeutico) {
-          html += `<td class="celda-almuerzo-libre" title="Almuerzo (sin terapista)">🍽</td>`;
+        } else if (_esSlotExcluidoDeAuto(pac, slot) && !pac.requiereAlmuerzoTerapeutico) {
+          // Almuerzo sin terapista: el algoritmo no lo asigna, pero el operario puede hacerlo a mano
+          const colaItem = modoColocarDeCola !== null ? sesionesCola[modoColocarDeCola.idx] : null;
+          const esMoverTarget = (modoMover?.pacienteId === pac.id) || (colaItem?.pacienteId === pac.id);
+          html += `<td class="celda-vacia celda-almuerzo-libre${esMoverTarget ? ' celda-mover-target' : ''}"
+            data-pac-id="${pac.id}" data-slot-id="${slot.id}" data-fecha="${fechaActiva}"
+            title="${esMoverTarget ? 'Colocar aquí' : 'Almuerzo (sin terapista) — click para asignar una sesión'}">${esMoverTarget ? '↕' : '🍽'}</td>`;
         } else {
           const colaItem = modoColocarDeCola !== null ? sesionesCola[modoColocarDeCola.idx] : null;
           const esMoverTarget = (modoMover?.pacienteId === pac.id)
@@ -546,10 +529,11 @@ function vistaGrilla() {
         }
       });
 
-      const pct = Math.round(misSesiones.length / HORAS_OBJETIVO_DIA * 100);
+      const _objHoras = _horasObjetivoPaciente(pac, estadoDia, _diaNum); // ambulatorio: todos los slots de su ventana
+      const pct = Math.round(misSesiones.length / (_objHoras || HORAS_OBJETIVO_DIA) * 100);
       const barColor = pctColor(pct);
       html += `<td class="celda-horas">
-        <div class="horas-num" style="color:${barColor}">${misSesiones.length}/${HORAS_OBJETIVO_DIA}</div>
+        <div class="horas-num" style="color:${barColor}">${misSesiones.length}/${_objHoras}</div>
         <div class="horas-bar"><div class="horas-fill" style="width:${Math.min(100,pct)}%;background:${barColor}"></div></div>
       </td></tr>`;
     });
@@ -883,6 +867,10 @@ function bindGrilla() {
     const yaExiste = Asignaciones.delDia(fechaActiva).length > 0;
     if (yaExiste && !confirm('Ya existe una agenda para este día. ¿Regenerar? Se perderán los cambios manuales.')) return;
 
+    _confirmarCoberturaAmbulatorios(fechaActiva, () => _generarAgendaYMostrar());
+  });
+
+  function _generarAgendaYMostrar() {
     const resultado = generarAgendaOptima(fechaActiva);
     renderVista();
 
@@ -892,14 +880,17 @@ function bindGrilla() {
     } else {
       // Única ganadora: feedback por toast
       const deficits = resultado.alertas.filter(a => a.tipo === 'deficit_horas').length;
+      const huecosAmb = resultado.alertas.filter(a => a.tipo === 'ambulatorio_hueco');
       const scoreStr = resultado.indice ? ` · Índice: ${resultado.indice.score}%` : '';
-      if (deficits === 0) {
+      if (huecosAmb.length > 0) {
+        mostrarToast(`Atención: ${huecosAmb.length} slot(s) de ambulatorios sin cubrir — ${huecosAmb[0].msg}`, 'error');
+      } else if (deficits === 0) {
         mostrarToast(`Agenda generada: ${resultado.sesiones.length} sesiones ✓${scoreStr}`, 'success');
       } else {
         mostrarToast(`Agenda generada con ${deficits} paciente(s) con déficit de horas${scoreStr}`, 'warning');
       }
     }
-  });
+  }
 
   document.getElementById('btn-generar-horario')?.addEventListener('click', () => {
     const estado = DiasState.delDia(fechaActiva);
@@ -909,9 +900,13 @@ function bindGrilla() {
     }
     const yaExiste = Asignaciones.delDia(fechaActiva).length > 0;
     if (yaExiste && !confirm('Ya existe una agenda para este día. ¿Regenerar? Se perderán los cambios manuales.')) return;
-    const resultado = generarAgendaSlotPorSlot(fechaActiva);
-    renderVista();
-    mostrarToast(`Agenda por horario: ${resultado.sesiones.length} sesiones`, 'success');
+    _confirmarCoberturaAmbulatorios(fechaActiva, () => {
+      const resultado = generarAgendaSlotPorSlot(fechaActiva);
+      renderVista();
+      const huecosAmb = resultado.alertas.filter(a => a.tipo === 'ambulatorio_hueco');
+      if (huecosAmb.length > 0) mostrarToast(`Atención: ${huecosAmb.length} slot(s) de ambulatorios sin cubrir — ${huecosAmb[0].msg}`, 'error');
+      else mostrarToast(`Agenda por horario: ${resultado.sesiones.length} sesiones`, 'success');
+    });
   });
 
   // Click en lock icon — toggle fijo (no propaga al click de la celda)
@@ -1146,13 +1141,12 @@ function abrirModalSesion(sesionId, fecha) {
 
   // Profesionales libres en este slot (para cambio directo)
   const estadoDia = DiasState.delDia(fecha);
-  const idsPresentes = new Set(_idsProfsPresentes(estadoDia, fecha));
   const ocupadosEnSlot = new Set(
     sesiones.filter(s => s.slotId === sesion.slotId && s.id !== sesionId)
             .map(s => s.profesionalId)
   );
   const profsCompatibles = Profesionales.activos().filter(p => {
-    if (!idsPresentes.has(p.id)) return false;
+    if (!_disponibilidadProfSlot(p, estadoDia, slot, fecha).ok) return false; // presente y en horario en ese slot
     if (ocupadosEnSlot.has(p.id)) return false;
     if (sesion.esAlmuerzo) {
       const discsAlm = paciente.disciplinasAlmuerzo?.length ? paciente.disciplinasAlmuerzo : DISCIPLINAS_ALMUERZO_DEFAULT;
@@ -1188,7 +1182,7 @@ function abrirModalSesion(sesionId, fecha) {
     <div class="sesion-acciones">
       <div class="sesion-accion-bloque">
         <h4>Cambiar profesional</h4>
-        <div class="text-muted" style="font-size:11px;margin-bottom:6px">Solo profesionales presentes y libres en este horario</div>
+        <div class="text-muted" style="font-size:11px;margin-bottom:6px">Solo profesionales presentes, en horario y libres en este slot</div>
         <div style="display:flex;gap:8px;align-items:center">
           <select id="nuevo-prof" class="select-field" style="flex:1">
             ${profsCompatibles.map(p =>
@@ -1223,7 +1217,9 @@ function abrirModalSesion(sesionId, fecha) {
             <option value="">— Elegir profesional —</option>
             ${Profesionales.activos().filter(p =>
               p.id !== sesion.profesionalId &&
-              !(sesion.profesionalesAdicionales||[]).includes(p.id)
+              !(sesion.profesionalesAdicionales||[]).includes(p.id) &&
+              !ocupadosEnSlot.has(p.id) &&
+              _disponibilidadProfSlot(p, estadoDia, slot, fecha).ok
             ).map(p =>
               `<option value="${p.id}">${esc(Profesionales.nombreCompleto(p))}</option>`
             ).join('')}
@@ -1537,6 +1533,24 @@ function cancelarModoMover() {
 
 // ── Drag-and-drop ─────────────────────────────────────────────────────────────
 
+// Aviso (o null) si el profesional no está disponible en ese slot ese día
+// (ausente, fuera de su horario habitual / del rango del día, 13:00 sin tildar, bloqueo).
+function _avisoProfNoDisponible(fecha, profId, slotId) {
+  const prof = Profesionales.porId(profId);
+  const slot = SLOTS.find(s => s.id === slotId);
+  if (!prof || !slot) return null;
+  const r = _disponibilidadProfSlot(prof, DiasState.delDia(fecha), slot, fecha);
+  return r.ok ? null : `${Profesionales.nombreCompleto(prof)} no está disponible a las ${slot.label}: ${r.razon}`;
+}
+
+// Mueve una sesión a otro slot manteniendo coherentes inicio/fin.
+function _moverSesionASlot(fecha, sesionId, nuevoSlotId) {
+  const nuevoSlot = SLOTS.find(s => s.id === nuevoSlotId);
+  Asignaciones.actualizarSesion(fecha, sesionId, {
+    slotId: nuevoSlotId, inicio: nuevoSlot?.inicio || '', fin: nuevoSlot?.fin || ''
+  });
+}
+
 function _dragValidarMover(fecha, sesionId, nuevoSlotId) {
   const sesiones = Asignaciones.delDia(fecha);
   const sesion   = sesiones.find(s => s.id === sesionId);
@@ -1552,6 +1566,8 @@ function _dragValidarMover(fecha, sesionId, nuevoSlotId) {
     razones.push('El paciente ya tiene otra sesión asignada en ese horario — se desplazará a la cola');
   if (sesiones.some(s => s.id !== sesionId && s.profesionalId === sesion.profesionalId && s.slotId === nuevoSlotId))
     razones.push('El profesional ya tiene otra sesión en ese horario — se desplazará a la cola');
+  const avisoProf = _avisoProfNoDisponible(fecha, sesion.profesionalId, nuevoSlotId);
+  if (avisoProf) razones.push(avisoProf);
   return razones.length ? { ok: false, razones } : { ok: true, razones: [] };
 }
 
@@ -1576,6 +1592,8 @@ function _dragValidarSwap(fecha, sesionIdA, sesionIdB) {
   if (sesiones.some(s => s.id !== sesionIdA && s.id !== sesionIdB
     && s.profesionalId === B.profesionalId && s.slotId === A.slotId))
     razones.push('El profesional de la sesión destino ya tiene otra sesión en ese horario — se desplazará a la cola');
+  [_avisoProfNoDisponible(fecha, A.profesionalId, B.slotId), _avisoProfNoDisponible(fecha, B.profesionalId, A.slotId)]
+    .forEach(a => { if (a) razones.push(a); });
   return razones.length ? { ok: false, razones } : { ok: true, razones: [] };
 }
 
@@ -1583,8 +1601,7 @@ function _dragEjecutarMover(fecha, sesionId, nuevoSlotId) {
   const nuevoSlot = SLOTS.find(s => s.id === nuevoSlotId);
   if (!nuevoSlot) return;
   Asignaciones.actualizarSesion(fecha, sesionId, {
-    slotId: nuevoSlotId, inicio: nuevoSlot.inicio, fin: nuevoSlot.fin,
-    esAlmuerzo: nuevoSlot.esAlmuerzo, fijo: true
+    slotId: nuevoSlotId, inicio: nuevoSlot.inicio, fin: nuevoSlot.fin, fijo: true
   });
   renderVista();
   mostrarToast('Sesión movida', 'success');
@@ -1602,8 +1619,7 @@ function _dragForzarMover(fecha, sesionId, nuevoSlotId) {
   const nuevoSlot = SLOTS.find(s => s.id === nuevoSlotId);
   if (!nuevoSlot) return;
   Asignaciones.actualizarSesion(fecha, sesionId, {
-    slotId: nuevoSlotId, inicio: nuevoSlot.inicio, fin: nuevoSlot.fin,
-    esAlmuerzo: nuevoSlot.esAlmuerzo, fijo: true
+    slotId: nuevoSlotId, inicio: nuevoSlot.inicio, fin: nuevoSlot.fin, fijo: true
   });
   renderVista();
   mostrarToast(conflictos.length ? 'Sesión movida — las desplazadas quedaron en la cola' : 'Sesión movida (forzado)', 'success');
@@ -1619,8 +1635,8 @@ function _dragEjecutarSwap(fecha, sesionIdA, sesionIdB) {
   const idxA  = sesiones.findIndex(s => s.id === sesionIdA);
   const idxB  = sesiones.findIndex(s => s.id === sesionIdB);
   const now   = new Date().toISOString();
-  sesiones[idxA] = { ...A, slotId: B.slotId, inicio: slotB?.inicio||'', fin: slotB?.fin||'', esAlmuerzo: slotB?.esAlmuerzo||false, origen: 'manual', fijo: true, modificadoEn: now };
-  sesiones[idxB] = { ...B, slotId: A.slotId, inicio: slotA?.inicio||'', fin: slotA?.fin||'', esAlmuerzo: slotA?.esAlmuerzo||false, origen: 'manual', fijo: true, modificadoEn: now };
+  sesiones[idxA] = { ...A, slotId: B.slotId, inicio: slotB?.inicio||'', fin: slotB?.fin||'', origen: 'manual', fijo: true, modificadoEn: now };
+  sesiones[idxB] = { ...B, slotId: A.slotId, inicio: slotA?.inicio||'', fin: slotA?.fin||'', origen: 'manual', fijo: true, modificadoEn: now };
   Asignaciones.guardarDia(fecha, sesiones);
   renderVista();
   mostrarToast('Sesiones intercambiadas', 'success');
@@ -1660,12 +1676,21 @@ function _dragModalConflicto(razones, onForzar) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ejecutarMover(nuevoSlotId, fecha) {
+function ejecutarMover(nuevoSlotId, fecha, omitirAvisoProf = false) {
   if (!modoMover) return;
   const { sesionId, fecha: fechaSrc } = modoMover;
   const sesiones = Asignaciones.delDia(fechaSrc);
   const sesion   = sesiones.find(s => s.id === sesionId);
   if (!sesion) { modoMover = null; renderVista(); return; }
+
+  // El profesional tiene que estar disponible en el slot destino (si no, se pide confirmación)
+  if (!omitirAvisoProf) {
+    const avisoProf = _avisoProfNoDisponible(fechaSrc, sesion.profesionalId, nuevoSlotId);
+    if (avisoProf) {
+      _dragModalConflicto([avisoProf], () => ejecutarMover(nuevoSlotId, fecha, true));
+      return;
+    }
+  }
 
   // Conflicto de paciente en slot destino
   const conflictoPac = sesiones.find(s =>
@@ -1674,7 +1699,7 @@ function ejecutarMover(nuevoSlotId, fecha) {
   if (conflictoPac) {
     abrirModalConflicto(conflictoPac, 'El paciente ya tiene una sesión en ese horario.', (sc) => {
       _desplazarACola(sc, fechaSrc);
-      Asignaciones.actualizarSesion(fechaSrc, sesionId, { slotId: nuevoSlotId });
+      _moverSesionASlot(fechaSrc, sesionId, nuevoSlotId);
       modoMover = null;
       cerrarModal();
       renderVista();
@@ -1691,7 +1716,7 @@ function ejecutarMover(nuevoSlotId, fecha) {
     const profNombre = Profesionales.porId(sesion.profesionalId)?.apellido || 'El profesional';
     abrirModalConflicto(conflictoProf, `${profNombre} ya tiene una sesión en ese horario.`, (sc) => {
       _desplazarACola(sc, fechaSrc);
-      Asignaciones.actualizarSesion(fechaSrc, sesionId, { slotId: nuevoSlotId });
+      _moverSesionASlot(fechaSrc, sesionId, nuevoSlotId);
       modoMover = null;
       cerrarModal();
       renderVista();
@@ -1700,7 +1725,7 @@ function ejecutarMover(nuevoSlotId, fecha) {
     return;
   }
 
-  Asignaciones.actualizarSesion(fechaSrc, sesionId, { slotId: nuevoSlotId });
+  _moverSesionASlot(fechaSrc, sesionId, nuevoSlotId);
   mostrarToast('Sesión movida', 'success');
   modoMover = null;
   renderVista();
@@ -1821,6 +1846,11 @@ function _validarSwap(s1, s2) {
       }
     }
   });
+
+  // Profesional fuera de horario / ausente en el slot al que pasaría
+  [_avisoProfNoDisponible(s1.fecha || fechaActiva, s1.profesionalId, s2.slotId),
+   _avisoProfNoDisponible(s2.fecha || fechaActiva, s2.profesionalId, s1.slotId)]
+    .forEach(a => { if (a) avisos.push(a); });
 
   return { valido: true, avisos };
 }
@@ -2129,15 +2159,15 @@ function abrirModalComparacionAgendas(candidatos, fecha) {
     let g = `<div class="comp-grid-wrapper"><table class="comp-grid">
       <thead><tr>
         <th class="comp-th-pac">Paciente</th>
-        ${SLOTS.filter(s => !s.esAlmuerzo).map(s => `<th>${esc(s.label)}</th>`).join('')}
+        ${SLOTS.map(s => `<th>${esc(s.label)}</th>`).join('')}
         <th>T</th>
       </tr></thead><tbody>`;
 
     pacientes.forEach(pac => {
-      const misSes = sesiones.filter(s => s.pacienteId === pac.id && !s.esAlmuerzo);
+      const misSes = sesiones.filter(s => s.pacienteId === pac.id);
       if (misSes.length === 0 && sesiones.every(s => s.pacienteId !== pac.id)) return;
       g += `<tr><td class="comp-pac-cell">${esc(pac.apellido)}, ${esc(pac.nombre)}</td>`;
-      SLOTS.filter(s => !s.esAlmuerzo).forEach(slot => {
+      SLOTS.forEach(slot => {
         const ses = misSes.find(s => s.slotId === slot.id);
         if (ses) {
           const disc = DISCIPLINAS[ses.disciplina];
@@ -2271,7 +2301,7 @@ function abrirModalCrearSesion(pacienteId, slotId, fecha) {
   const slot = SLOTS.find(s => s.id === slotId);
   if (!pac || !slot) return;
 
-  const profesionales = Profesionales.activos();
+  _mcCtx = { fecha, slotId };
   const optsDisc = Object.entries(DISCIPLINAS)
     .filter(([k]) => _discPermitida(k))
     .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
@@ -2293,8 +2323,8 @@ function abrirModalCrearSesion(pacienteId, slotId, fecha) {
         <label>Profesional</label>
         <select id="mc-profesional">
           <option value="">— seleccionar —</option>
-          ${profesionales.map(p => `<option value="${p.id}">${esc(p.apellido)}, ${esc(p.nombre)}</option>`).join('')}
         </select>
+        <div id="mc-prof-aviso" class="text-muted" style="font-size:11px;margin-top:4px"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2305,20 +2335,20 @@ function abrirModalCrearSesion(pacienteId, slotId, fecha) {
   _mcFiltrarProfs();
 }
 
+let _mcCtx = null; // { fecha, slotId } del modal "Nueva sesión manual" abierto
+
 function _mcFiltrarProfs() {
   const disc = document.getElementById('mc-disciplina')?.value;
   const sel  = document.getElementById('mc-profesional');
-  if (!sel) return;
+  if (!sel || !_mcCtx) return;
   const valorActual = sel.value;
-  // Solo profesionales presentes hoy con la disciplina seleccionada
-  const estadoDia = DiasState.delDia(fechaActiva);
-  const idsPresentes = new Set(_idsProfsPresentes(estadoDia, fechaActiva));
-  const profs = Profesionales.activos().filter(p =>
-    idsPresentes.has(p.id) &&
-    (!disc || (p.disciplinas || []).includes(disc))
-  );
+  // Solo profesionales con la disciplina que están presentes y disponibles en ESE día y horario
+  const profs = profesionalesDisponiblesParaSlot(_mcCtx.fecha, _mcCtx.slotId, disc)
+    .sort((a, b) => a.apellido.localeCompare(b.apellido));
   sel.innerHTML = '<option value="">— seleccionar —</option>' +
     profs.map(p => `<option value="${p.id}"${p.id === valorActual ? ' selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`).join('');
+  const aviso = document.getElementById('mc-prof-aviso');
+  if (aviso) aviso.textContent = profs.length === 0 ? 'No hay profesionales disponibles de esta disciplina en ese día y horario.' : '';
 }
 
 function _confirmarCrearSesion(pacienteId, slotId, fecha) {
@@ -2585,9 +2615,8 @@ function vistaListaProf() {
 
   const prof     = Profesionales.porId(profSeleccionadoLista);
   const sesiones = sesionesDelDia.filter(s => s.profesionalId === profSeleccionadoLista);
-  const dw       = _weekday(fechaActiva);
-  const horarios = (prof?.horariosPorDia || {})[dw] || [];
-  const enHorario = s => horarios.length === 0 || horarios.includes(s.id);
+  const estadoLista = DiasState.delDia(fechaActiva);
+  const enHorario = s => !!prof && _disponibilidadProfSlot(prof, estadoLista, s, fechaActiva).ok;
 
   const profSelect = `<select id="lista-prof-sel" class="select-field">
     ${profs.map(p =>
@@ -2641,11 +2670,6 @@ function vistaListaProf() {
         <span class="lista-prof-chip" style="${chipStyle}">${esc(disc?.corto || ses.disciplina)}</span>
         <span class="lista-prof-pac">${ses.esAlmuerzo ? '🍽 ' : ''}${esc(pac?.apellido || '?')}, ${esc(pac?.nombre || '')}</span>
         ${grupoBadge}
-      </div>`;
-    } else if (slot.esAlmuerzo) {
-      html += `<div class="lista-prof-item lista-prof-almuerzo">
-        <span class="lista-prof-hora">${esc(slot.label)}</span>
-        <span style="color:var(--text-muted);font-size:13px">🍽 Almuerzo</span>
       </div>`;
     } else if (enHorario(slot)) {
       html += `<div class="lista-prof-item lista-prof-libre">
@@ -3468,11 +3492,10 @@ function abrirFormPaciente(pac) {
   const slotOptsHtml = SLOTS.map(s =>
     '<option value="' + s.id + '">' + esc(s.label) + '</option>'
   ).join('');
-  const slotsNoAlmuerzo = SLOTS.filter(s => !s.esAlmuerzo);
   const horarioAmbPorDia = pac?.horarioAmbulatorioPorDia || {};
   const _slotSelectAmb = (name, valorActual) => `<select name="${name}" class="select-field select-field-sm">
     <option value="">— Sin definir —</option>
-    ${slotsNoAlmuerzo.map(s => `<option value="${s.id}" ${valorActual === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}
+    ${SLOTS.map(s => `<option value="${s.id}" ${valorActual === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}
   </select>`;
   const amDiasHorarioHtml = [1,2,3,4,5,6].map(d => {
     const activo = (pac?.diasAsistencia || []).includes(d);
@@ -3783,6 +3806,19 @@ function guardarPaciente(id) {
       const egr = document.querySelector(`select[name="amb_egreso_${dia}"]`)?.value || null;
       if (ing || egr) horarioAmbulatorioPorDia[dia] = { slotIngreso: ing, slotEgreso: egr };
     });
+    // Un ambulatorio presente tiene sesión en todo su horario: sin ventana no se puede garantizar
+    const idx = id => SLOTS.findIndex(s => s.id === id);
+    for (const dia of diasAsistencia) {
+      const h = horarioAmbulatorioPorDia[dia];
+      if (!h?.slotIngreso || !h?.slotEgreso) {
+        alert(`Definí el horario de ingreso y egreso del ${DIAS_SEMANA[dia]} (el paciente ambulatorio necesita sesión en todo su horario de asistencia).`);
+        return;
+      }
+      if (idx(h.slotEgreso) < idx(h.slotIngreso)) {
+        alert(`El egreso del ${DIAS_SEMANA[dia]} no puede ser anterior al ingreso.`);
+        return;
+      }
+    }
   }
 
   const datos = {
@@ -4150,22 +4186,23 @@ function _gridHorariosHtml(prof) {
       <div class="asist-grid" id="prof-horarios-grid">
         <div class="asist-header-row">
           <div class="asist-dia-col"></div>
-          ${[8,9,10,11,12,14,15,16,17,18].map(h =>
+          ${[8,9,10,11,12,13,14,15,16,17,18].map(h =>
             `<div class="asist-h-label">${String(h).padStart(2,'0')}</div>`
           ).join('')}
         </div>
         ${[['1','Lun'],['2','Mar'],['3','Mié'],['4','Jue'],['5','Vie'],['6','Sáb']].map(([v, lbl]) => {
           const diaNum   = Number(v);
           const activo   = (prof?.diasLaborales||[]).includes(diaNum);
-          const guardados = ((prof?.horariosPorDia || {})[diaNum] || []).filter(sid => sid !== 'slot_13');
+          const guardados = ((prof?.horariosPorDia || {})[diaNum] || []);
           return `<div class="asist-row">
             <label class="asist-dia-label">
               <input type="checkbox" class="asist-dia-chk" name="prof_dia" value="${v}" ${activo ? 'checked' : ''}>
               <span class="asist-dia-name">${lbl}</span>
             </label>
-            ${[8,9,10,11,12,14,15,16,17,18].map(h => {
+            ${[8,9,10,11,12,13,14,15,16,17,18].map(h => {
               const sid = `slot_${String(h).padStart(2,'0')}`;
-              const chk = activo && (guardados.length === 0 || guardados.includes(sid));
+              // Día sin horarios guardados (alta nueva): todo el día salvo el 13:00, que es opt-in
+              const chk = activo && (guardados.length === 0 ? SLOTS_DIA_DEFAULT.includes(sid) : guardados.includes(sid));
               return `<label class="asist-hora-cell${activo ? '' : ' asist-off'}">
                 <input type="checkbox" name="phg_slot_${v}" value="${sid}"
                   ${chk ? 'checked' : ''} ${activo ? '' : 'disabled'}>
@@ -4189,7 +4226,7 @@ function _bindGridHorarios() {
         const input = cell.querySelector('input');
         cell.classList.toggle('asist-off', !activo);
         input.disabled = !activo;
-        if (activo) input.checked = true;  // marcar todo el día por defecto
+        if (activo) input.checked = SLOTS_DIA_DEFAULT.includes(input.value);  // todo el día por defecto, salvo el 13:00 (opt-in)
       });
     });
   });
@@ -4222,6 +4259,7 @@ function _leerGridHorarios() {
     const slots = [...document.querySelectorAll(`input[name="phg_slot_${d}"]:checked`)].map(e => e.value);
     if (slots.length) horariosPorDia[d] = slots;
   });
+  horariosPorDia._v = HORARIOS_VERSION; // formato vigente (ver _normalizarHorariosProf)
   return { diasLaborales, horariosPorDia };
 }
 
@@ -5447,14 +5485,24 @@ function vistaSesionRapida() {
   const pacientes = Pacientes.activos().sort((a,b) => (a.apellido||'').localeCompare(b.apellido||''));
   const discsOrdenadas = Object.entries(DISCIPLINAS).filter(([k]) => _discPermitida(k))
     .sort((a,b) => a[1].label.localeCompare(b[1].label));
-  const profsCompatibles = _srDisciplina ? Profesionales.porDisciplina(_srDisciplina) : [];
+  // Profesionales de la disciplina presentes ese día y, si ya se eligió horario, disponibles en ese slot
+  let profsCompatibles = [];
+  if (_srDisciplina && _srFecha) {
+    if (_srSlotId) {
+      profsCompatibles = profesionalesDisponiblesParaSlot(_srFecha, _srSlotId, _srDisciplina);
+    } else {
+      const _estadoSr = DiasState.delDia(_srFecha);
+      profsCompatibles = Profesionales.porDisciplina(_srDisciplina).filter(p => _getPresencia(_estadoSr, p.id, _srFecha));
+    }
+  }
+  if (_srProfesionalId && !profsCompatibles.some(p => p.id === _srProfesionalId)) _srProfesionalId = '';
 
   const pacOpts = pacientes.map(p =>
     `<option value="${p.id}" ${_srPacienteId === p.id ? 'selected' : ''}>${esc(p.apellido)}, ${esc(p.nombre)}</option>`
   ).join('');
 
   const slotOpts = SLOTS.map(s =>
-    `<option value="${s.id}" ${_srSlotId === s.id ? 'selected' : ''}>${esc(s.label)}${s.esAlmuerzo ? ' (almuerzo)' : ''}</option>`
+    `<option value="${s.id}" ${_srSlotId === s.id ? 'selected' : ''}>${esc(s.label)}</option>`
   ).join('');
 
   const discOpts = discsOrdenadas.map(([key, d]) =>
@@ -5527,7 +5575,8 @@ function vistaSesionRapida() {
         <option value="">${_srDisciplina ? '— Elegir —' : 'Elegí una disciplina primero'}</option>
         ${profOpts}
       </select>
-      ${_srDisciplina && profsCompatibles.length === 0 ? `<span class="text-muted" style="font-size:11px;color:#dc2626">No hay profesionales activos con esta disciplina.</span>` : ''}
+      ${_srDisciplina && profsCompatibles.length === 0 ? `<span class="text-muted" style="font-size:11px;color:#dc2626">${_srSlotId ? 'No hay profesionales disponibles de esta disciplina en ese día y horario.' : 'No hay profesionales de esta disciplina presentes ese día.'}</span>` : ''}
+      ${_srDisciplina && !_srSlotId ? `<span class="text-muted" style="font-size:11px;display:block">Elegí el horario para ver solo los profesionales disponibles en ese slot.</span>` : ''}
     </div>
     <button class="btn btn-primary" id="sr-crear" style="width:100%;justify-content:center">+ Crear sesión fija</button>
   </div>
@@ -5536,9 +5585,10 @@ function vistaSesionRapida() {
 
 function bindSesionRapida() {
   const $ = id => document.getElementById(id);
-  $('sr-fecha')?.addEventListener('change', e => { _srFecha = e.target.value; });
+  // Fecha y horario cambian qué profesionales están disponibles: se vuelve a filtrar la lista
+  $('sr-fecha')?.addEventListener('change', e => { _srFecha = e.target.value; renderVista(); });
   $('sr-paciente')?.addEventListener('change', e => { _srPacienteId = e.target.value; });
-  $('sr-horario')?.addEventListener('change', e => { _srSlotId = e.target.value; });
+  $('sr-horario')?.addEventListener('change', e => { _srSlotId = e.target.value; renderVista(); });
   $('sr-disciplina')?.addEventListener('change', e => {
     _srDisciplina = e.target.value;
     _srProfesionalId = '';
@@ -5567,7 +5617,11 @@ async function crearSesionRapida() {
   }
 
   const sesionesDia = Asignaciones.delDia(_srFecha);
-  if (sesionesDia.some(s => s.pacienteId === _srPacienteId && s.slotId === _srSlotId)) {
+  const _profSigueDisponible = profesionalesDisponiblesParaSlot(_srFecha, _srSlotId, _srDisciplina)
+    .some(p => p.id === _srProfesionalId);
+  if (!_profSigueDisponible) {
+    mostrarToast('El profesional ya no está disponible en ese día y horario. Elegí otro.', 'danger');
+  } else if (sesionesDia.some(s => s.pacienteId === _srPacienteId && s.slotId === _srSlotId)) {
     mostrarToast('El paciente ya tiene una sesión en ese horario.', 'danger');
   } else if (sesionesDia.some(s => s.profesionalId === _srProfesionalId && s.slotId === _srSlotId)) {
     mostrarToast('El profesional ya tiene una sesión en ese horario.', 'danger');
@@ -5589,6 +5643,34 @@ function quitarSesionRapidaCreada(sesionId, fecha) {
     _sesionesRapidasCreadas = _sesionesRapidasCreadas.filter(s => s.id !== sesionId);
     renderVista();
   }
+}
+
+// Aviso previo a generar: datos que impedirían cubrir toda la ventana de los
+// ambulatorios presentes (ventana sin definir, plan vacío, falta de profesionales).
+// Es informativo: permite seguir igual o cancelar para corregir la carga.
+function _confirmarCoberturaAmbulatorios(fecha, continuar) {
+  const avisos = verificarCoberturaAmbulatorios(fecha);
+  if (avisos.length === 0) { continuar(); return; }
+  window._cobAmbContinuar = continuar;
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Revisá la carga de datos antes de generar</h3>
+      <button class="modal-close" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="aviso-restricciones">
+        <div class="aviso-icono">⚠</div>
+        <div>
+          <strong>Los pacientes ambulatorios necesitan sesión en todo su horario de asistencia, pero:</strong>
+          <ul class="aviso-lista">${avisos.map(a => `<li>${esc(a)}</li>`).join('')}</ul>
+          <p class="aviso-pregunta">Esto suele indicar un error en la carga de datos. ¿Generar de todas formas?</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="cerrarModal(); window._cobAmbContinuar && window._cobAmbContinuar()">Generar de todas formas</button>
+    </div>`);
 }
 
 // ─── Relleno interactivo de huecos ─────────────────────────────────────────────
@@ -5693,7 +5775,7 @@ function _crearSesionRelleno(fecha, pacienteId, profesionalId, disciplina, slotI
   const slot = SLOTS.find(s => s.id === slotId);
   const sesion = {
     id: genId(), fecha, pacienteId, profesionalId, disciplina, slotId,
-    inicio: slot?.inicio || '', fin: slot?.fin || '', esAlmuerzo: slot?.esAlmuerzo || false,
+    inicio: slot?.inicio || '', fin: slot?.fin || '', esAlmuerzo: disciplina === '_almuerzo',
     origen: 'manual_relleno', puntaje: null, motivo: 'Relleno de hueco (interactivo)',
     urgente: false, fijo: false, profesionalesAdicionales: [],
     creadoEn: new Date().toISOString(), modificadoEn: new Date().toISOString()
@@ -6600,6 +6682,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   migrarHigieneAlmuerzo();
   // Migración: slotIngreso/slotEgreso → horarioAmbulatorioPorDia
   migrarHorarioAmbulatorio();
+  // Migración: horarios de profesionales (día laboral sin slots → 9 slots; 13:00 desactivado)
+  migrarHorariosProfesionales();
 
   // Fecha y usuario en sidebar
   document.getElementById('sidebar-fecha').textContent =
