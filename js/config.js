@@ -109,6 +109,10 @@ const SLOTS = [
   { id: 'slot_18', inicio: '18:00', fin: '19:00', label: '18:00 – 19:00', turno: 'tarde', esAlmuerzo: false }
 ];
 
+// Slots que muestran las barras de turno en la celda Paciente de la agenda (el 13:00 no entra).
+const SLOTS_BARRA_MANANA = ['slot_08','slot_09','slot_10','slot_11','slot_12'];
+const SLOTS_BARRA_TARDE  = ['slot_14','slot_15','slot_16','slot_17','slot_18'];
+
 // Slots que un profesional cubre por defecto en un día laboral nuevo. El 13:00
 // queda afuera: es opt-in en el perfil (y el panel de disponibilidad, que solo
 // indica ingreso/egreso, no puede habilitarlo: ver _disponibilidadProfSlot).
