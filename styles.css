@@ -2431,6 +2431,19 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   max-width: 560px;
 }
 
+/* Dos columnas: profesional (izquierda) y paciente (derecha); apilan en pantallas angostas */
+.lista-dual { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+.lista-col  { flex: 1 1 400px; max-width: 560px; min-width: 0; }
+
+/* Header navegable con la rueda del mouse */
+.lista-nav-header { position: relative; cursor: ns-resize; transition: box-shadow .15s, border-color .15s; }
+.lista-nav-header:hover { border-color: var(--primary, #3b82f6); box-shadow: 0 0 0 2px rgba(59,130,246,.18); }
+.lista-nav-pos {
+  position: absolute; top: 10px; right: 14px;
+  font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.lista-nav-header:hover .lista-nav-pos::before { content: '↕ '; }
+
 .lista-prof-lista {
   display: flex;
   flex-direction: column;
