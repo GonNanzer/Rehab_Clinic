@@ -412,7 +412,6 @@ function vistaGrilla() {
       + '</div>'
       + '<div class="disp-panel-chips" id="disp-panel-chips">'
       + _colsHtml
-      + '<div class="disp-panel-col-horas"></div>'
       + '</div>'
       + '</div>'
       + '</div>';
@@ -423,15 +422,12 @@ function vistaGrilla() {
     <thead><tr>
       <th class="grilla-th-pac">Paciente</th>
       ${SLOTS.map(s => `<th class="${s.esAlmuerzo ? 'col-almuerzo' : ''}">${esc(s.label)}</th>`).join('')}
-      <th>Horas</th>
     </tr></thead>
     <tbody>`;
 
   pacientes.sort((a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a))
     .forEach(pac => {
       const misSesiones = sesiones.filter(s => s.pacienteId === pac.id);
-      const grupo = GRUPOS_DIAGNOSTICOS[pac.grupo];
-      const transf = TRANSFERENCIAS[pac.transferencias];
       const estadoDia = DiasState.delDia(fechaActiva);
       const _bCoy = {};
       (estadoDia.bloquesPacientes?.[pac.id] || []).forEach(b => { _bCoy[b.slotId] = b; });
@@ -444,7 +440,6 @@ function vistaGrilla() {
           _bEst[b.slotId] = { motivo: 'Baño' };
       });
       const bloqueados = new Set([...Object.keys(_bCoy), ...Object.keys(_bEst)]);
-      const edif = pac.edificio || pac.habitacion || '';
 
       let _ambulatorioChip = '';
       if (pac.esAmbulatorio && (pac.diasAsistencia || []).includes(_diaNum)) {
@@ -459,28 +454,38 @@ function vistaGrilla() {
         }
       }
 
+      const _objHoras = _horasObjetivoPaciente(pac, estadoDia, _diaNum); // ambulatorio: todos los slots de su ventana
+      const _pct = Math.round(misSesiones.length / (_objHoras || HORAS_OBJETIVO_DIA) * 100);
+      const _barColor = pctColor(_pct);
+      const _barraTurno = (slotIds) => '<span class="turno-barra">' + slotIds.map(id => {
+        const s = misSesiones.find(x => x.slotId === id);
+        const c = s ? (DISCIPLINAS[s.disciplina]?.color || '#64748b') : '';
+        return `<i${c ? ` style="background:${c}"` : ''}></i>`;
+      }).join('') + '</span>';
+
       html += `<tr>
         <td class="grilla-pac-cell">
           <div class="pac-nombre">${esc(pac.nombre)} ${esc(pac.apellido)}</div>
           <div class="pac-info">
-            ${edif ? `<span class="text-muted" style="font-size:10px">${esc(edif)}</span>` : ''}
-            ${grupo ? `<span class="badge" style="background:${grupo.bg};color:${grupo.color};border:1px solid ${grupo.border}">${grupo.label}</span>` : ''}
-            ${transf ? `<span class="badge badge-warning" style="font-size:10px">${transf.label}</span>` : ''}
-            ${_ambulatorioChip}
+            <span class="horas-num" style="color:${_barColor}">${misSesiones.length}/${_objHoras}</span>
+            ${_barraTurno(SLOTS_BARRA_MANANA)}
+            ${_barraTurno(SLOTS_BARRA_TARDE)}
           </div>
+          ${_ambulatorioChip ? `<div class="pac-info">${_ambulatorioChip}</div>` : ''}
         </td>`;
 
       SLOTS.forEach(slot => {
         const sesionesEnSlot = misSesiones.filter(s => s.slotId === slot.id);
         const sesion = sesionesEnSlot[0]; // puede haber dual KTR
         const bloqueado = bloqueados.has(slot.id);
+        const _tipFranja = `data-tooltip="${esc(slot.label)}" data-tooltip-delay="250"`;
 
         if (bloqueado && !sesion) {
           const _partes = [];
           if (_bEst[slot.id]) _partes.push('Estructural' + (_bEst[slot.id].motivo ? ': ' + _bEst[slot.id].motivo : ''));
           if (_bCoy[slot.id]) _partes.push('Coyuntural' + (_bCoy[slot.id].motivo ? ': ' + _bCoy[slot.id].motivo : ''));
           const _bloqTitle = esc(_partes.join(' · ') || 'Bloqueado');
-          html += `<td class="celda-bloqueada" title="${_bloqTitle}">🚫</td>`;
+          html += `<td class="celda-bloqueada" data-tooltip="${esc(slot.label)} · ${_bloqTitle}" data-tooltip-delay="250">🚫</td>`;
         } else if (sesion) {
           const prof = Profesionales.porId(sesion.profesionalId);
           const disc = DISCIPLINAS[sesion.disciplina];
@@ -504,7 +509,7 @@ function vistaGrilla() {
             data-fecha="${fechaActiva}"
             data-pac-id="${pac.id}"
             data-slot-id="${slot.id}"
-            title="${_area ? 'Solo lectura' : esSrcMover ? 'Sesión a mover — elegí un slot vacío destino' : 'Arrastrá para mover o intercambiar · Click para editar'}">
+            ${_tipFranja}>
             ${lockIcon}
             <div class="celda-disc" style="color:${textColor}">
               ${(sesion.profesionalesAdicionales||[]).length > 0 ? '👥 ' : ''}${sesion.esAlmuerzo ? '🍽 ' : ''}${esc(disc?.corto || sesion.disciplina)}
@@ -518,24 +523,18 @@ function vistaGrilla() {
           const esMoverTarget = (modoMover?.pacienteId === pac.id) || (colaItem?.pacienteId === pac.id);
           html += `<td class="celda-vacia celda-almuerzo-libre${esMoverTarget ? ' celda-mover-target' : ''}"
             data-pac-id="${pac.id}" data-slot-id="${slot.id}" data-fecha="${fechaActiva}"
-            title="${esMoverTarget ? 'Colocar aquí' : 'Almuerzo (sin terapista) — click para asignar una sesión'}">${esMoverTarget ? '↕' : '🍽'}</td>`;
+            ${_tipFranja}>${esMoverTarget ? '↕' : '🍽'}</td>`;
         } else {
           const colaItem = modoColocarDeCola !== null ? sesionesCola[modoColocarDeCola.idx] : null;
           const esMoverTarget = (modoMover?.pacienteId === pac.id)
                              || (colaItem?.pacienteId === pac.id);
           html += `<td class="celda-vacia${esMoverTarget ? ' celda-mover-target' : ''}"
             data-pac-id="${pac.id}" data-slot-id="${slot.id}" data-fecha="${fechaActiva}"
-            title="${esMoverTarget ? 'Colocar aquí' : 'Agregar sesión'}">${esMoverTarget ? '↕' : '+'}</td>`;
+            ${_tipFranja}>${esMoverTarget ? '↕' : '+'}</td>`;
         }
       });
 
-      const _objHoras = _horasObjetivoPaciente(pac, estadoDia, _diaNum); // ambulatorio: todos los slots de su ventana
-      const pct = Math.round(misSesiones.length / (_objHoras || HORAS_OBJETIVO_DIA) * 100);
-      const barColor = pctColor(pct);
-      html += `<td class="celda-horas">
-        <div class="horas-num" style="color:${barColor}">${misSesiones.length}/${_objHoras}</div>
-        <div class="horas-bar"><div class="horas-fill" style="width:${Math.min(100,pct)}%;background:${barColor}"></div></div>
-      </td></tr>`;
+      html += `</tr>`;
     });
 
   html += `</tbody></table></div>`;
@@ -644,15 +643,13 @@ function _syncDispPanelWidths() {
   if (!ths.length) return;
   const lbl   = panel.querySelector('.disp-panel-lbl');
   const cols  = Array.from(panel.querySelectorAll('.disp-panel-col'));
-  const horas = panel.querySelector('.disp-panel-col-horas');
   function setW(el, th) {
     if (!el || !th) return;
     const w = th.getBoundingClientRect().width;
     if (w > 0) { el.style.width = w + 'px'; el.style.flex = 'none'; }
   }
   setW(lbl, ths[0]);
-  ths.slice(1, ths.length - 1).forEach(function(th, i) { setW(cols[i], th); });
-  setW(horas, ths[ths.length - 1]);
+  ths.slice(1).forEach(function(th, i) { setW(cols[i], th); });
 }
 
 function _initSidebarSticky() {
@@ -6797,7 +6794,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const el = e.target.closest('[data-tooltip]');
     if (!el) return;
     clearTimeout(timer);
-    timer = setTimeout(() => mostrar(el), 950);
+    timer = setTimeout(() => mostrar(el), Number(el.dataset.tooltipDelay) || 950);
   }, true);
 
   document.addEventListener('mouseleave', e => {

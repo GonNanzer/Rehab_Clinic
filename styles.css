@@ -612,10 +612,11 @@ body.rol-admin_area .area-only { display: flex; }
 .celda-bloqueada { background: #fafafa; color: #aaa; }
 .celda-almuerzo-libre { background: #fffbeb; }
 
-.celda-horas { padding: 6px 8px; min-width: 80px; text-align: center; }
-.horas-num { font-size: 13px; font-weight: 700; }
-.horas-bar { height: 4px; background: #e2e8f0; border-radius: 2px; margin-top: 4px; overflow: hidden; }
-.horas-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.horas-num { font-size: 12px; font-weight: 700; white-space: nowrap; }
+/* Barras de turno (mañana / tarde): un casillero por slot, color de la disciplina */
+.turno-barra { display: inline-flex; gap: 1px; }
+.turno-barra i { display: block; width: 7px; height: 8px; border-radius: 1px; background: #e2e8f0; }
+.turno-barra + .turno-barra { margin-left: 2px; }
 
 .alertas-bar {
   background: #fef3c7; border: 1px solid #fcd34d; border-radius: var(--radius);
@@ -2410,7 +2411,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   gap: 2px;
 }
 .disp-panel-col-alm { background: #fffbeb; }
-.disp-panel-col-horas { flex: 0 0 60px; }
 .disp-libre-chip {
   display: inline-block;
   border: 1px solid;
