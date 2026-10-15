@@ -90,7 +90,8 @@ let modoSwap = null;                // { sesionId, fecha } mientras se espera la
 let modoRotacion = null;            // { cola: [{ sesionId, fecha }] } para rotación de N sesiones
 let modoMover = null;               // { sesionId, fecha, pacienteId } mientras se espera el slot destino
 let filtroProf = null;              // id del profesional activo en el filtro de grilla (null = todos)
-let profSeleccionadoLista = null;   // profesional seleccionado en "Lista por profesional"
+let pacSeleccionadoLista  = null;   // paciente seleccionado en "Lista por profesional"
+let profSeleccionadoLista = null;  // profesional seleccionado en "Lista por profesional"
 let sesionesCola = [];              // [{ pacienteId, profesionalId, disciplina, slotOriginal, esAlmuerzo, motivo, urgente }]
 let modoColocarDeCola = null;       // { idx } — índice en sesionesCola que se está colocando
 let _dragSesionId    = null;        // sesionId en vuelo durante drag-and-drop
@@ -2623,11 +2624,28 @@ function vistaListaProf() {
     ).join('')}
   </select>`;
 
+  // Pacientes con sesiones el día (misma lógica que los profesionales)
+  const idsPacConSesion = new Set(sesionesDelDia.map(s => s.pacienteId));
+  const pacs = Pacientes.activos()
+    .filter(p => idsPacConSesion.has(p.id))
+    .sort((a, b) => a.apellido.localeCompare(b.apellido));
+  if (!pacs.some(p => p.id === pacSeleccionadoLista)) pacSeleccionadoLista = pacs[0]?.id || null;
+  const pac = Pacientes.porId(pacSeleccionadoLista);
+
+  const pacSelect = `<select id="lista-pac-sel" class="select-field">
+    ${pacs.map(p =>
+      `<option value="${p.id}" ${p.id === pacSeleccionadoLista ? 'selected' : ''}>
+         ${esc(p.apellido)}, ${esc(p.nombre)}
+       </option>`
+    ).join('')}
+  </select>`;
+
   let html = `<div class="vista-header">
     <div class="vista-header-left">
       <h2>Lista por profesional</h2>
       <input type="date" id="lista-prof-fecha" value="${fechaActiva}" class="date-input">
       ${profSelect}
+      ${pacSelect}
     </div>
     <div class="vista-header-right">
       <button class="btn btn-secondary" onclick="exportarListaProfPDF()">📄 PDF</button>
@@ -2636,9 +2654,14 @@ function vistaListaProf() {
 
   if (!prof) return html + `<p class="text-muted">No hay sesiones asignadas para este día.</p>`;
 
+  const idxProf = profs.findIndex(p => p.id === prof.id);
+  const idxPac  = pacs.findIndex(p => p.id === pacSeleccionadoLista);
   const discsLabel = (prof.disciplinas || []).map(d => DISCIPLINAS[d]?.label || d).join(', ');
 
-  html += `<div class="card lista-prof-header-card">
+  html += `<div class="lista-dual"><div class="lista-col">
+  <div class="card lista-prof-header-card lista-nav-header" data-nav="prof"
+    data-tooltip="Scrolleá acá para pasar al profesional anterior o siguiente." data-tooltip-delay="250">
+    <div class="lista-nav-pos">${idxProf + 1} / ${profs.length}</div>
     <div style="font-size:16px;font-weight:700">${esc(prof.apellido)}, ${esc(prof.nombre)}</div>
     <div class="text-muted" style="font-size:12px;margin-top:3px">${esc(discsLabel)}</div>
     <div class="text-muted" style="font-size:12px;margin-top:3px">
@@ -2677,11 +2700,82 @@ function vistaListaProf() {
     // fuera de horario sin sesión: no se muestra
   });
 
-  html += `</div>`;
+  html += `</div></div>`; // cierra .lista-prof-lista y .lista-col del profesional
+
+  // ── Columna por paciente (misma estética, a la derecha) ───────────────────
+  const sesPac = sesionesDelDia.filter(s => s.pacienteId === pacSeleccionadoLista);
+  const idxSlotPac = sesPac.map(s => SLOTS.findIndex(sl => sl.id === s.slotId)).filter(i => i >= 0);
+  const primero = idxSlotPac.length ? Math.min(...idxSlotPac) : -1;
+  const ultimo  = idxSlotPac.length ? Math.max(...idxSlotPac) : -1;
+  const grupoPac = GRUPOS_DIAGNOSTICOS[pac?.grupo];
+
+  html += `<div class="lista-col">
+  <div class="card lista-prof-header-card lista-nav-header" data-nav="pac"
+    data-tooltip="Scrolleá acá para pasar al paciente anterior o siguiente." data-tooltip-delay="250">
+    <div class="lista-nav-pos">${idxPac + 1} / ${pacs.length}</div>
+    <div style="font-size:16px;font-weight:700">${esc(pac?.apellido || '?')}, ${esc(pac?.nombre || '')}</div>
+    <div class="text-muted" style="font-size:12px;margin-top:3px">${grupoPac ? esc(grupoPac.label) : '&nbsp;'}</div>
+    <div class="text-muted" style="font-size:12px;margin-top:3px">
+      ${formatFecha(fechaActiva)} &nbsp;·&nbsp;
+      <strong>${sesPac.length}</strong> sesión${sesPac.length !== 1 ? 'es' : ''} asignada${sesPac.length !== 1 ? 's' : ''}
+    </div>
+  </div>
+
+  <div class="lista-prof-lista">`;
+
+  SLOTS.forEach((slot, i) => {
+    const ses = sesPac.find(s => s.slotId === slot.id);
+    if (ses) {
+      const pr   = Profesionales.porId(ses.profesionalId);
+      const disc = DISCIPLINAS[ses.disciplina];
+      const chipStyle = disc
+        ? `background:${disc.bg};color:${disc.color};border-color:${disc.border}`
+        : 'background:#f0f0f0;color:#333;border-color:#ccc';
+      html += `<div class="lista-prof-item">
+        <span class="lista-prof-hora">${esc(slot.label)}</span>
+        <span class="lista-prof-chip" style="${chipStyle}">${esc(disc?.corto || ses.disciplina)}</span>
+        <span class="lista-prof-pac">${ses.esAlmuerzo ? '🍽 ' : ''}${esc(pr?.apellido || '?')}, ${esc(pr?.nombre || '')}</span>
+      </div>`;
+    } else if (i > primero && i < ultimo) {
+      // hueco entre la primera y la última sesión del paciente
+      html += `<div class="lista-prof-item lista-prof-libre">
+        <span class="lista-prof-hora">${esc(slot.label)}</span>
+        <span style="color:#cbd5e1;font-size:13px">libre</span>
+      </div>`;
+    }
+  });
+
+  html += `</div></div></div>`; // cierra lista-prof-lista, lista-col y lista-dual
   return html;
 }
 
+// Scroll sobre un header: pasa a la persona anterior/siguiente de su lista
+let _listaWheelTs = 0;
+function _navListaHeader(el, dir) {
+  const esProf = el.dataset.nav === 'prof';
+  const sel = document.getElementById(esProf ? 'lista-prof-sel' : 'lista-pac-sel');
+  if (!sel) return;
+  const i = sel.selectedIndex + dir;
+  if (i < 0 || i >= sel.options.length) return;
+  if (esProf) profSeleccionadoLista = sel.options[i].value;
+  else        pacSeleccionadoLista  = sel.options[i].value;
+  renderVista();
+}
+
 function bindListaProf() {
+  document.querySelectorAll('.lista-nav-header').forEach(el => {
+    el.addEventListener('wheel', e => {
+      e.preventDefault();
+      const ahora = Date.now();
+      if (ahora - _listaWheelTs < 200 || e.deltaY === 0) return; // evita saltar varios de golpe
+      _listaWheelTs = ahora;
+      _navListaHeader(el, e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+  });
+  document.getElementById('lista-pac-sel')?.addEventListener('change', e => {
+    pacSeleccionadoLista = e.target.value;
+    renderVista();
+  });
   document.getElementById('lista-prof-fecha')?.addEventListener('change', e => {
     fechaActiva = e.target.value;
     renderVista();
