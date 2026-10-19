@@ -52,6 +52,31 @@ function _ventanaAmbulatoria(p, dia) {
   return { iIng, iEgr };
 }
 
+// ¿Se le puede asignar sesiones a este paciente ese día? Un ambulatorio solo si
+// asiste ese día Y tiene horario de ingreso/egreso definido: sin ventana no se
+// sabe cuándo está en la institución, así que no se le asigna nada automático
+// (la verificación previa y la grilla lo avisan).
+function _pacienteAsignableAuto(pac, dia) {
+  return !pac.esAmbulatorio || !!_ventanaAmbulatoria(pac, dia);
+}
+
+// Motivo (texto) por el que ese slot cae FUERA del horario de asistencia de un
+// ambulatorio ese día, o null si está dentro (o el paciente no es ambulatorio).
+// Es la validación común de TODA asignación o movimiento de sesión.
+function _motivoFueraDeHorarioAmbulatorio(pac, fecha, slotId) {
+  if (!pac || !pac.esAmbulatorio) return null;
+  const dia = _weekday(fecha);
+  const nombre = `${pac.apellido}, ${pac.nombre}`;
+  if (!(pac.diasAsistencia || []).includes(dia))
+    return `${nombre} es ambulatorio y no asiste ese día`;
+  const v = _ventanaAmbulatoria(pac, dia);
+  if (!v) return `${nombre} es ambulatorio y no tiene horario de ingreso/egreso definido para ese día`;
+  const i = SLOTS.findIndex(s => s.id === slotId);
+  if (i < v.iIng || i > v.iEgr)
+    return `${nombre} es ambulatorio y asiste de ${SLOTS[v.iIng].inicio} a ${SLOTS[v.iEgr].fin}: ese horario queda fuera`;
+  return null;
+}
+
 // Marca como 'BLOQ_HORARIO_AMB' los slots fuera de la ventana de cada
 // ambulatorio que asiste ese día (aplica a todos los slots, incluido el 12).
 function _aplicarVentanaAmbulatoria(patientSlots, pacientes, dia) {
@@ -404,6 +429,10 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   const esHigiene = necesidad.tipo === 'higiene';
   const estadoDia = DiasState.delDia(fecha);
 
+  // Ambulatorio: nunca fuera de su día / horario de asistencia (guarda común a todos los caminos automáticos)
+  if (!_pacienteAsignableAuto(paciente, _weekday(fecha)))
+    return { ok: false, razon: 'ambulatorio_fuera_de_horario', msg: 'Ambulatorio sin asistencia o sin horario definido ese día' };
+
   // Verificar límite diario por disciplina (las prescripciones urgentes lo omiten)
   if (!esAlmuerzo && !urgente && !relajar.limites) {
     const limiteD = paciente.limitesDiarios?.[disciplina];
@@ -419,7 +448,8 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   // Slots candidatos
   let candidatos;
   if (slotForzado) {
-    candidatos = SLOTS.filter(s => s.id === slotForzado && !patientSlots[paciente.id][s.id]);
+    candidatos = SLOTS.filter(s => s.id === slotForzado && !patientSlots[paciente.id][s.id]
+      && !_motivoFueraDeHorarioAmbulatorio(paciente, fecha, s.id));
     // Relleno de hueco / cierre de ventana: respeta la no repetición de disciplina
     // en slots consecutivos (salvo que se la ceda explícitamente)
     if ((necesidad.tipo === 'relleno_hueco' || necesidad.tipo === 'cierre_ventana') && !relajar.consecutividad) {
@@ -429,6 +459,7 @@ function intentarAsignar(necesidad, paciente, sesionesActuales, profSlotsHoy,
   } else {
     candidatos = SLOTS.filter(s => {
       if (patientSlots[paciente.id][s.id]) return false;     // ocupado o bloqueado
+      if (_motivoFueraDeHorarioAmbulatorio(paciente, fecha, s.id)) return false; // fuera del horario de asistencia
       if (esAlmuerzo) return s.esAlmuerzo;
       if (_esSlotExcluidoDeAuto(paciente, s)) return false;  // 12:00: almuerzo reservado / sin terapista
       const idx = SLOTS.findIndex(sl => sl.id === s.id);
@@ -690,7 +721,7 @@ function _repararHuecoAmbulatorio(pac, slot, discs, sesiones, profSlotsHoy, pati
       const mark = movimientos.length;
       if (buscar(Y, occ, visitados)) { movimientos.push({ ses, paciente, P, d }); return true; }
       movimientos.length = mark;
-      if (!esAmbulatorioHoy(Y)) {
+      if (!Y.esAmbulatorio) { // un ambulatorio nunca se reubica a otro slot (queda dentro de su ventana)
         const S2 = slotAlternativo(Y, occ, P);
         if (S2) {
           movimientos.push({ ses: occ, paciente: Y, P, d: occ.disciplina, moverA: S2 });
@@ -937,7 +968,7 @@ function _asignarPacienteDia(paciente, S) {
   const { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas } = S;
   const diaActual = _weekday(fecha);
   const semana = limitesDeSemana(fecha);
-  if (paciente.esAmbulatorio && !(paciente.diasAsistencia || []).includes(diaActual)) return;
+  if (!_pacienteAsignableAuto(paciente, diaActual)) return;
 
   const esAmb = !!_ventanaAmbulatoria(paciente, diaActual);
   const fijasDelPac = sesiones.filter(s => s.fijo === true && s.pacienteId === paciente.id).length;
@@ -1305,6 +1336,7 @@ function generarAgendaSlotPorSlot(fecha) {
       if (!(pac.diasAsistencia || []).includes(diaActual)) continue;
       // Ambulatorios con ventana definida: se resuelven primero y por completo (ver más abajo)
       if (_ventanaAmbulatoria(pac, diaActual)) { ambulatoriosConVentana.push(pac); continue; }
+      continue; // asiste pero sin horario definido: no se le asigna nada automático
     }
     const fijasDelPac = sesionesFijas.filter(s => s.pacienteId === pac.id);
     if (fijasDelPac.length >= HORAS_OBJETIVO_DIA) continue;
@@ -1628,9 +1660,10 @@ function mejoraLocal(fecha) {
   let swapsRealizados   = 0;
   const detalles        = [];
 
-  const pacientesOrdenados = [...todosPacientes].sort(
-    (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
-  );
+  const diaMejora = _weekday(fecha);
+  const pacientesOrdenados = todosPacientes
+    .filter(p => _pacienteAsignableAuto(p, diaMejora)) // ambulatorios solo si asisten ese día y tienen horario
+    .sort((a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a));
 
   const MAX_ITER = 3;
 
@@ -1864,8 +1897,8 @@ function detectarHuecosRellenables(fecha) {
   const sesionesHoy = Asignaciones.delDia(fecha);
   const { profSlotsHoy, patientSlots } = _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacientes);
 
-  const pacientesConAgenda = todosPacientes.filter(p =>
-    sesionesHoy.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual));
+  const pacientesConAgenda = todosPacientes.filter(p => _pacienteAsignableAuto(p, diaActual) &&
+    (sesionesHoy.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual)));
   const pacientesOrdenados = [...pacientesConAgenda].sort(
     (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
   );
@@ -1906,8 +1939,8 @@ function rellenarEspaciosVaciosAuto(fecha) {
   let sesiones = [...Asignaciones.delDia(fecha)];
   if (!sesiones.length) return { sesionesAgregadas: 0, detalles: [] };
 
-  const pacientesConAgenda = todosPacientes.filter(p =>
-    sesiones.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual));
+  const pacientesConAgenda = todosPacientes.filter(p => _pacienteAsignableAuto(p, diaActual) &&
+    (sesiones.some(s => s.pacienteId === p.id) || _ventanaAmbulatoria(p, diaActual)));
   const pacientesOrdenados = [...pacientesConAgenda].sort(
     (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a)
   );
@@ -1991,7 +2024,7 @@ function opcionesParaHueco(fecha, pacienteId, slotId) {
 
   const pac = Pacientes.porId(pacienteId);
   if (!pac || patientSlots[pacienteId]?.[slotId]) return [];
-  if (pac.esAmbulatorio && !(pac.diasAsistencia || []).includes(_weekday(fecha))) return [];
+  if (!pac || !_pacienteAsignableAuto(pac, _weekday(fecha))) return [];
 
   const plan = Planes.delPaciente(pacienteId);
   const discsOrdenadas = _discsPlanOrdenadasPorDeficit(pac, plan, fecha);

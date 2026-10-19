@@ -2878,3 +2878,15 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .excl-toggle { width: 32px; height: 28px; border-radius: 4px; border: 1px solid var(--border); background: transparent; cursor: pointer; font-size: 14px; line-height: 1; transition: background .15s, border-color .15s; }
 .excl-toggle:hover { background: var(--bg); }
 .excl-toggle.excl-on { background: #fee2e2; border-color: #fca5a5; }
+
+/* ── Ambulatorios: fuera de su horario de asistencia ───────────────────────── */
+.celda-fuera-horario-amb {
+  text-align: center; padding: 8px; color: #cbd5e1; font-size: 14px;
+  background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 4px, #f1f5f9 4px, #f1f5f9 8px);
+  cursor: not-allowed;
+}
+.celda-fuera-horario { outline: 2px solid #ef4444; outline-offset: -2px; }
+.banner-fuera-horario {
+  margin: 0 0 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5;
+}
