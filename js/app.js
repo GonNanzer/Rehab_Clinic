@@ -418,6 +418,12 @@ function vistaGrilla() {
       + '</div>';
   }
 
+  // Sesiones de ambulatorios que ya están cargadas fuera de su día / horario de asistencia
+  const _sesFuera = sesiones.filter(s => _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(s.pacienteId), fechaActiva, s.slotId));
+  if (_sesFuera.length > 0) {
+    html += `<div class="banner-fuera-horario">⚠ Hay ${_sesFuera.length} sesión${_sesFuera.length > 1 ? 'es' : ''} de pacientes ambulatorios fuera de su horario de asistencia (marcadas con ⚠ en la grilla). Eliminalas o corregí el horario del paciente.</div>`;
+  }
+
   html += _dispPanelHtml;
   html += `<div class="grilla-wrapper" id="grilla-wrapper"><table class="grilla-tabla">
     <thead><tr>
@@ -480,8 +486,12 @@ function vistaGrilla() {
         const sesion = sesionesEnSlot[0]; // puede haber dual KTR
         const bloqueado = bloqueados.has(slot.id);
         const _tipFranja = `data-tooltip="${esc(slot.label)}" data-tooltip-delay="250"`;
+        // Ambulatorio: horario fuera de su día / ventana de asistencia
+        const _fueraAmb = _motivoFueraDeHorarioAmbulatorio(pac, fechaActiva, slot.id);
 
-        if (bloqueado && !sesion) {
+        if (!sesion && _fueraAmb) {
+          html += `<td class="celda-fuera-horario-amb" data-tooltip="${esc(_fueraAmb)}" data-tooltip-delay="250">·</td>`;
+        } else if (bloqueado && !sesion) {
           const _partes = [];
           if (_bEst[slot.id]) _partes.push('Estructural' + (_bEst[slot.id].motivo ? ': ' + _bEst[slot.id].motivo : ''));
           if (_bCoy[slot.id]) _partes.push('Coyuntural' + (_bCoy[slot.id].motivo ? ': ' + _bCoy[slot.id].motivo : ''));
@@ -503,17 +513,17 @@ function vistaGrilla() {
           const enRotacion = rotIdx >= 0 ? ` rot-en-cola rot-idx-${rotIdx}` : '';
           const esSrcMover = modoMover?.sesionId === sesion.id;
           const dimmed = filtroProf && sesion.profesionalId !== filtroProf && !esSrcMover ? ' celda-dimmed' : '';
-          html += `<td class="celda-sesion${sesion.fijo ? ' sesion-fija' : ''}${enRotacion}${esSrcMover ? ' celda-mover-src' : ''}${dimmed}"
+          html += `<td class="celda-sesion${sesion.fijo ? ' sesion-fija' : ''}${enRotacion}${esSrcMover ? ' celda-mover-src' : ''}${dimmed}${_fueraAmb ? ' celda-fuera-horario' : ''}"
             ${_area ? '' : 'draggable="true"'}
             style="background:${bgColor};border-left:3px solid ${textColor}"
             data-sesion-id="${sesion.id}"
             data-fecha="${fechaActiva}"
             data-pac-id="${pac.id}"
             data-slot-id="${slot.id}"
-            ${_tipFranja}>
+            ${_fueraAmb ? `data-tooltip="${esc('⚠ ' + _fueraAmb + ' — eliminá o movela')}" data-tooltip-delay="150"` : _tipFranja}>
             ${lockIcon}
             <div class="celda-disc" style="color:${textColor}">
-              ${(sesion.profesionalesAdicionales||[]).length > 0 ? '👥 ' : ''}${sesion.esAlmuerzo ? '🍽 ' : ''}${esc(disc?.corto || sesion.disciplina)}
+              ${_fueraAmb ? '⚠ ' : ''}${(sesion.profesionalesAdicionales||[]).length > 0 ? '👥 ' : ''}${sesion.esAlmuerzo ? '🍽 ' : ''}${esc(disc?.corto || sesion.disciplina)}
             </div>
             <div class="celda-prof">${iconOrigen}${esc(Profesionales.iniciales(prof))} ${esc(prof?.apellido || '')}</div>
             ${esRef ? '<div class="ref-badge">★ Ref.</div>' : ''}
@@ -1014,8 +1024,9 @@ function bindGrilla() {
       const capSlotId   = td.dataset.slotId;
       const capFecha    = fechaActiva;
       _dragSesionId = null;
-      const { ok, razones } = _dragValidarMover(capFecha, capSesionId, capSlotId);
+      const { ok, razones, duro } = _dragValidarMover(capFecha, capSesionId, capSlotId);
       if (ok) _dragEjecutarMover(capFecha, capSesionId, capSlotId);
+      else if (duro) mostrarToast(razones[0] + '. No se puede mover ahí.', 'error');
       else if (razones?.length) _dragModalConflicto(razones, () => _dragForzarMover(capFecha, capSesionId, capSlotId));
     });
   });
@@ -1040,8 +1051,9 @@ function bindGrilla() {
       const capSesionIdB = td.dataset.sesionId;
       const capFecha     = fechaActiva;
       _dragSesionId = null;
-      const { ok, razones } = _dragValidarSwap(capFecha, capSesionIdA, capSesionIdB);
+      const { ok, razones, duro } = _dragValidarSwap(capFecha, capSesionIdA, capSesionIdB);
       if (ok) _dragEjecutarSwap(capFecha, capSesionIdA, capSesionIdB);
+      else if (duro) mostrarToast(razones.join(' · ') + '. No se puede intercambiar.', 'error');
       else if (razones?.length) _dragModalConflicto(razones, () => _dragForzarSwap(capFecha, capSesionIdA, capSesionIdB));
     });
   });
@@ -1408,6 +1420,9 @@ function forzarColocarEnOriginal(idx) {
   const sesiones = Asignaciones.delDia(fecha);
   const slotId   = item.slotOriginal;
 
+  const _fueraOrig = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(item.pacienteId), fecha, slotId);
+  if (_fueraOrig) { mostrarToast(_fueraOrig + '. No se puede colocar ahí.', 'error'); return; }
+
   // Conflicto de paciente: nunca se puede forzar (un paciente no puede estar en dos sesiones)
   const conflictoPac = sesiones.find(s => s.pacienteId === item.pacienteId && s.slotId === slotId);
   if (conflictoPac) {
@@ -1459,6 +1474,9 @@ function ejecutarColocarDeCola(slotId, fecha) {
   const item = sesionesCola[modoColocarDeCola.idx];
   if (!item) { modoColocarDeCola = null; renderVista(); return; }
 
+  const _fueraDest = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(item.pacienteId), fecha, slotId);
+  if (_fueraDest) { mostrarToast(_fueraDest + '. No se puede colocar ahí.', 'error'); return; }
+
   const sesiones = Asignaciones.delDia(fecha);
 
   // Conflicto de paciente en el slot destino
@@ -1509,6 +1527,8 @@ function ejecutarColocarDeCola(slotId, fecha) {
 
 function _colocarItemDeCola(idx, slotId, fecha) {
   const item = sesionesCola[idx];
+  const _fueraCola = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(item.pacienteId), fecha, slotId);
+  if (_fueraCola) { mostrarToast(_fueraCola + '. No se puede colocar ahí.', 'error'); return; }
   Asignaciones.crearSesionManual(fecha, item.pacienteId, item.profesionalId, item.disciplina, slotId);
   sesionesCola.splice(idx, 1);
   modoColocarDeCola = null;
@@ -1553,6 +1573,9 @@ function _dragValidarMover(fecha, sesionId, nuevoSlotId) {
   const sesiones = Asignaciones.delDia(fecha);
   const sesion   = sesiones.find(s => s.id === sesionId);
   if (!sesion || sesion.slotId === nuevoSlotId) return { ok: false, razones: [] };
+  // Ambulatorio fuera de su día/horario de asistencia: bloqueo duro (no se puede forzar)
+  const _duro = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(sesion.pacienteId), fecha, nuevoSlotId);
+  if (_duro) return { ok: false, razones: [_duro], duro: true };
   const estado  = DiasState.delDia(fecha);
   const pac     = Pacientes.porId(sesion.pacienteId);
   const razones = [];
@@ -1574,6 +1597,11 @@ function _dragValidarSwap(fecha, sesionIdA, sesionIdB) {
   const A = sesiones.find(s => s.id === sesionIdA);
   const B = sesiones.find(s => s.id === sesionIdB);
   if (!A || !B || A.slotId === B.slotId) return { ok: false, razones: [] };
+  const _duroSwap = [
+    _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(A.pacienteId), fecha, B.slotId),
+    _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(B.pacienteId), fecha, A.slotId)
+  ].filter(Boolean);
+  if (_duroSwap.length) return { ok: false, razones: _duroSwap, duro: true };
   const estado  = DiasState.delDia(fecha);
   const pacA    = Pacientes.porId(A.pacienteId);
   const pacB    = Pacientes.porId(B.pacienteId);
@@ -1681,6 +1709,10 @@ function ejecutarMover(nuevoSlotId, fecha, omitirAvisoProf = false) {
   const sesion   = sesiones.find(s => s.id === sesionId);
   if (!sesion) { modoMover = null; renderVista(); return; }
 
+  // Ambulatorio: bloqueo duro si el destino cae fuera de su día / horario de asistencia
+  const _fueraMover = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(sesion.pacienteId), fechaSrc, nuevoSlotId);
+  if (_fueraMover) { mostrarToast(_fueraMover + '. No se puede mover ahí.', 'error'); return; }
+
   // El profesional tiene que estar disponible en el slot destino (si no, se pide confirmación)
   if (!omitirAvisoProf) {
     const avisoProf = _avisoProfNoDisponible(fechaSrc, sesion.profesionalId, nuevoSlotId);
@@ -1778,6 +1810,12 @@ function _validarSwap(s1, s2) {
   const sesiones = Asignaciones.delDia(s1.fecha || fechaActiva);
   const estado   = DiasState.delDia(s1.fecha || fechaActiva);
   const bloqueos = estado.bloquesPacientes || {};
+
+  // Ambulatorios: ninguno puede quedar fuera de su día / horario de asistencia
+  const _fechaSw = s1.fecha || fechaActiva;
+  const _fueraSw = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(s1.pacienteId), _fechaSw, s2.slotId)
+                || _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(s2.pacienteId), _fechaSw, s1.slotId);
+  if (_fueraSw) return { valido: false, duro: true, razon: _fueraSw + '.' };
 
   const bloqPac1 = (bloqueos[s1.pacienteId] || []).map(b => b.slotId);
   const bloqPac2 = (bloqueos[s2.pacienteId] || []).map(b => b.slotId);
@@ -2298,6 +2336,8 @@ function abrirModalCrearSesion(pacienteId, slotId, fecha) {
   const pac  = Pacientes.porId(pacienteId);
   const slot = SLOTS.find(s => s.id === slotId);
   if (!pac || !slot) return;
+  const _fuera = _motivoFueraDeHorarioAmbulatorio(pac, fecha, slotId);
+  if (_fuera) { mostrarToast(_fuera + '. Ajustá su horario de asistencia en el perfil del paciente.', 'error'); return; }
 
   _mcCtx = { fecha, slotId };
   const optsDisc = Object.entries(DISCIPLINAS)
@@ -2353,6 +2393,8 @@ function _confirmarCrearSesion(pacienteId, slotId, fecha) {
   const disc  = document.getElementById('mc-disciplina')?.value;
   const profId = document.getElementById('mc-profesional')?.value;
   if (!disc || !profId) { mostrarToast('Seleccioná disciplina y profesional.', 'warning'); return; }
+  const _fueraHorario = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(pacienteId), fecha, slotId);
+  if (_fueraHorario) { mostrarToast(_fueraHorario + '.', 'error'); return; }
   if (!_discPermitida(disc)) { mostrarToast('Solo podés crear sesiones de tu área.', 'warning'); return; }
 
   const sesiones = Asignaciones.delDia(fecha);
@@ -2489,6 +2531,8 @@ function confirmarRotacion() {
     if (bloqPac.includes(slotDestino)) {
       errores.push(`${pac?.apellido}, ${pac?.nombre}: horario ${SLOTS.find(sl=>sl.id===slotDestino)?.label} bloqueado.`);
     }
+    const fueraRot = _motivoFueraDeHorarioAmbulatorio(pac, fecha, slotDestino);
+    if (fueraRot) errores.push(fueraRot + '.');
   });
   if (errores.length > 0) {
     mostrarToast('No se puede rotar: ' + errores.join(' / '), 'error');
@@ -5708,9 +5752,12 @@ async function crearSesionRapida() {
   }
 
   const sesionesDia = Asignaciones.delDia(_srFecha);
+  const _fueraHorarioSr = _motivoFueraDeHorarioAmbulatorio(Pacientes.porId(_srPacienteId), _srFecha, _srSlotId);
   const _profSigueDisponible = profesionalesDisponiblesParaSlot(_srFecha, _srSlotId, _srDisciplina)
     .some(p => p.id === _srProfesionalId);
-  if (!_profSigueDisponible) {
+  if (_fueraHorarioSr) {
+    mostrarToast(_fueraHorarioSr + '. Ajustá su horario de asistencia en el perfil del paciente.', 'danger');
+  } else if (!_profSigueDisponible) {
     mostrarToast('El profesional ya no está disponible en ese día y horario. Elegí otro.', 'danger');
   } else if (sesionesDia.some(s => s.pacienteId === _srPacienteId && s.slotId === _srSlotId)) {
     mostrarToast('El paciente ya tiene una sesión en ese horario.', 'danger');
