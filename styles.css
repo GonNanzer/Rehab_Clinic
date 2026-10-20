@@ -2890,3 +2890,16 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   margin: 0 0 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
   background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5;
 }
+
+/* ── Crear desde texto ─────────────────────────────────────────────────────── */
+.cdt-textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; resize: vertical; }
+.cdt-tabla td { vertical-align: top; }
+.cdt-sel { min-width: 130px; }
+.cdt-raw { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--text-muted); }
+.cdt-msg { font-size: 12px; margin-top: 2px; }
+.cdt-err { color: var(--color-danger); }
+.cdt-preg { color: var(--color-info); }
+.cdt-aviso { color: var(--color-warning); }
+.cdt-fila.cdt-error { background: #fef2f2; }
+.cdt-fila.cdt-pregunta { background: #eff6ff; }
