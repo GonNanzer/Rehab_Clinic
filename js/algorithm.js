@@ -247,17 +247,30 @@ function construirNecesidades(paciente, plan, conteoSemanal, prescripcionesUrgen
     if (limite > 0) idealHoy[disc] = Math.min(idealHoy[disc] || 0, limite);
   });
 
-  // Primer pase: agregar las sesiones ideales
+  // Primer pase: las sesiones ideales de cada disciplina, EMITIDAS intercaladas
+  // por déficit semanal (siempre sale primero la disciplina más atrasada). El
+  // orden importa: el piso de sesiones por paciente (ver _avanzarPacienteDia)
+  // corta la lista, y sin intercalar se llevarían todo las primeras disciplinas.
   let horasAgregadas = 0;
   const contadoresPorDisc = {};
+  const porEmitir = {};
+  const restante = {};
   disciplinas.forEach(disc => {
     const cantidad = Math.min(idealHoy[disc] || 0, horasPorCubrir - horasAgregadas);
-    for (let i = 0; i < cantidad; i++) {
-      necesidades.push({ tipo: 'regular', disciplina: disc, esAlmuerzo: false, urgente: false, prioridad: 5 });
-      horasAgregadas++;
-    }
+    horasAgregadas += cantidad;
     contadoresPorDisc[disc] = cantidad;
+    porEmitir[disc] = cantidad;
+    restante[disc] = (plan[disc] || 0) - (conteoSemanal[disc] || 0);
   });
+  for (let n = horasAgregadas; n > 0; n--) {
+    let mejor = null;
+    for (const disc of disciplinas) {
+      if (porEmitir[disc] > 0 && (mejor === null || restante[disc] > restante[mejor])) mejor = disc;
+    }
+    necesidades.push({ tipo: 'regular', disciplina: mejor, esAlmuerzo: false, urgente: false, prioridad: 5 });
+    porEmitir[mejor]--;
+    restante[mejor]--;
+  }
 
   // Segundo pase: completar horas restantes con round-robin por disciplinas,
   // respetando los límites diarios de cada disciplina.
@@ -960,24 +973,46 @@ function _totalSlotsSemanales(prof) {
   }, 0);
 }
 
-// Asigna las necesidades del día de un paciente. Si es un ambulatorio presente,
-// además cierra su ventana (ver _completarVentanaAmbulatoria): no puede quedar
-// un slot sin sesión dentro de su horario de asistencia.
+// ─── Asignación por rondas con piso de sesiones por paciente ─────────────────
+//
+// En vez de agotar a cada paciente antes de pasar al siguiente, la asignación
+// se reparte en rondas sobre el mismo orden de prioridad:
+//   · Ronda 1: cada paciente recibe hasta `cupo` sesiones EN TOTAL (las fijas,
+//     las rutinas —higiene / almuerzo—, las urgentes y las regulares consumen
+//     cupo). Las rutinas y urgentes se asignan siempre en esta ronda, aunque
+//     superen el cupo; las regulares solo mientras haya cupo.
+//   · Ronda 2: se retoma desde el primer paciente con las necesidades que
+//     quedaron pendientes por el cupo, sin tope.
+// Las reglas duras (bloqueos, ventana ambulatoria, disponibilidad, consecutividad,
+// etc.) viven en intentarAsignar y no cambian. Los ambulatorios presentes no
+// tienen tope: se resuelven completos (ver _completarVentanaAmbulatoria).
+// Una necesidad que falla (sin slot / sin profesional) no se reintenta: los
+// recursos solo se ocupan a medida que avanza el día, así que no puede mejorar.
+
+// Cupo de la primera ronda para ese día: DiasState.cupoPiso, o el default de
+// config. 0 = sin tope (comportamiento "paciente por paciente" clásico).
+function cupoPisoDelDia(fecha) {
+  const v = DiasState.delDia(fecha).cupoPiso;
+  return Number.isInteger(v) && v >= 0 ? v : CUPO_PISO_DEFECTO;
+}
+
+// Prepara el estado de asignación de un paciente para el día, o null si no
+// corresponde asignarle nada automático.
 // S = { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas }
-function _asignarPacienteDia(paciente, S) {
-  const { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas } = S;
+function _prepararPacienteDia(paciente, S) {
+  const { estado, fecha, sesiones, coordSesEstaSemana } = S;
   const diaActual = _weekday(fecha);
   const semana = limitesDeSemana(fecha);
-  if (!_pacienteAsignableAuto(paciente, diaActual)) return;
+  if (!_pacienteAsignableAuto(paciente, diaActual)) return null;
 
   const esAmb = !!_ventanaAmbulatoria(paciente, diaActual);
   const fijasDelPac = sesiones.filter(s => s.fijo === true && s.pacienteId === paciente.id).length;
   // Ambulatorio: tantas sesiones como slots libres tenga su ventana. Resto: objetivo fijo.
   const horasNecesarias = esAmb
     ? Math.max(0, _horasObjetivoPaciente(paciente, estado, diaActual) - fijasDelPac)
-    : HORAS_OBJETIVO_DIA;
+    : Math.max(0, HORAS_OBJETIVO_DIA - fijasDelPac);
   // Saltear pacientes cuyos slots fijos ya cubrieron todas las necesidades
-  if (!esAmb && fijasDelPac >= HORAS_OBJETIVO_DIA) return;
+  if (!esAmb && fijasDelPac >= HORAS_OBJETIVO_DIA) return null;
 
   const plan = Planes.delPaciente(paciente.id);
   const prescripciones = (estado.prescripcionesUrgentes || {})[paciente.id] || [];
@@ -993,18 +1028,34 @@ function _asignarPacienteDia(paciente, S) {
     paciente, plan, conteoSemanal, prescripciones, fecha, horasNecesarias
   );
 
-  const ctx = { coordSesEstaSemana };
-  let horasAsignadas = 0;
+  return {
+    paciente, esAmb, fijasDelPac, horasNecesarias, sesionesEstaSemana,
+    ctx: { coordSesEstaSemana },
+    pendientes: [...necesidades],
+    asignadas: 0,                // sesiones nuevas de este paciente
+    cupoUsado: fijasDelPac       // fijas + nuevas: lo que cuenta contra el cupo
+  };
+}
 
-  for (const nec of necesidades) {
+// Asigna necesidades pendientes del paciente hasta llegar a `cupo` sesiones en
+// total. Las forzadas (rutinas / almuerzo) y las urgentes se asignan siempre.
+function _avanzarPacienteDia(est, S, cupo) {
+  const { fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, alertas } = S;
+  const { paciente, ctx } = est;
+  while (est.pendientes.length > 0) {
+    const nec = est.pendientes[0];
+    const obligatoria = !!nec.slotForzado || !!nec.urgente;
+    if (!obligatoria && est.cupoUsado >= cupo) break;
+    est.pendientes.shift();
+
     const resultado = intentarAsignar(
       nec, paciente, sesiones, profSlotsHoy,
-      patientSlots, profsDisponibles, fecha, sesionesEstaSemana, ctx
+      patientSlots, profsDisponibles, fecha, est.sesionesEstaSemana, ctx
     );
-
     if (resultado.ok) {
       _registrarSesionEnMapas(resultado.sesion, sesiones, profSlotsHoy, patientSlots, profsDisponibles, ctx);
-      horasAsignadas++;
+      est.asignadas++;
+      est.cupoUsado++;
     } else {
       alertas.push({
         tipo: resultado.razon,
@@ -1015,12 +1066,18 @@ function _asignarPacienteDia(paciente, S) {
       });
     }
   }
+}
+
+// Cierre del paciente tras la última ronda: ventana de ambulatorio y alerta de déficit.
+function _cerrarPacienteDia(est, S) {
+  const { fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, alertas } = S;
+  const { paciente, esAmb, ctx } = est;
 
   if (esAmb) {
     const antes = sesiones.length;
     const sinCubrir = _completarVentanaAmbulatoria(
-      paciente, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, sesionesEstaSemana, ctx);
-    horasAsignadas += sesiones.length - antes;
+      paciente, sesiones, profSlotsHoy, patientSlots, profsDisponibles, fecha, est.sesionesEstaSemana, ctx);
+    est.asignadas += sesiones.length - antes;
     sinCubrir.forEach(slot => alertas.push({
       tipo: 'ambulatorio_hueco',
       pacienteId: paciente.id,
@@ -1031,22 +1088,59 @@ function _asignarPacienteDia(paciente, S) {
     }));
   }
 
-  const objetivo = esAmb ? horasNecesarias : HORAS_OBJETIVO_DIA;
-  if (horasAsignadas < objetivo) {
+  const objetivo = esAmb ? est.horasNecesarias : HORAS_OBJETIVO_DIA;
+  const logradas = esAmb ? est.asignadas : est.asignadas + est.fijasDelPac;
+  if (logradas < objetivo) {
     alertas.push({
       tipo: 'deficit_horas',
       pacienteId: paciente.id,
       pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
-      horasAsignadas,
+      horasAsignadas: logradas,
       horasObjetivo: objetivo,
-      msg: `${paciente.nombre} ${paciente.apellido}: ${horasAsignadas}/${objetivo} horas asignadas`
+      msg: `${paciente.nombre} ${paciente.apellido}: ${logradas}/${objetivo} horas asignadas`
     });
+  }
+}
+
+// Asigna de una vez todas las necesidades de un paciente (sin tope) y lo cierra.
+// Lo usa el modo "por horario" para los ambulatorios.
+function _asignarPacienteDia(paciente, S) {
+  const est = _prepararPacienteDia(paciente, S);
+  if (!est) return;
+  _avanzarPacienteDia(est, S, Infinity);
+  _cerrarPacienteDia(est, S);
+}
+
+// Recorre los pacientes en orden con el esquema de rondas descripto arriba.
+// cupoPiso: sesiones totales por paciente en la ronda 1 (0 / Infinity = sin tope).
+function _asignarPorRondas(ordenFinal, S, cupoPiso) {
+  const cupo = cupoPiso > 0 ? cupoPiso : Infinity;
+  const internados = [];
+
+  // Ronda 1
+  for (const paciente of ordenFinal) {
+    const est = _prepararPacienteDia(paciente, S);
+    if (!est) continue;
+    if (est.esAmb) {
+      _avanzarPacienteDia(est, S, Infinity);
+      _cerrarPacienteDia(est, S);
+    } else {
+      _avanzarPacienteDia(est, S, cupo);
+      internados.push(est);
+    }
+  }
+  // Ronda 2: desde el primero, lo que quedó pendiente por el cupo
+  for (const est of internados) {
+    if (est.pendientes.length > 0) _avanzarPacienteDia(est, S, Infinity);
+    _cerrarPacienteDia(est, S);
   }
 }
 
 function generarAgenda(fecha, opciones = {}) {
   const { ordenOverride = null, persistir = true } = opciones;
   const estado = DiasState.delDia(fecha);
+  // Piso de sesiones por paciente en la ronda 1 (0 = sin tope); por defecto el del día
+  const cupoPiso = opciones.cupoPiso ?? cupoPisoDelDia(fecha);
   const todosPacientes = Pacientes.activos();
   const idsExcluidos  = estado.profesionalesExcluidos  || [];
   const profsDisponibles = Profesionales.todos()
@@ -1152,7 +1246,7 @@ function generarAgenda(fecha, opciones = {}) {
   ];
 
   const S = { estado, fecha, sesiones, profSlotsHoy, patientSlots, profsDisponibles, coordSesEstaSemana, alertas };
-  for (const paciente of ordenFinal) _asignarPacienteDia(paciente, S);
+  _asignarPorRondas(ordenFinal, S, cupoPiso);
 
   // Persistir solo si no es una corrida de comparación
   if (persistir) {
@@ -1179,7 +1273,7 @@ function generarAgenda(fecha, opciones = {}) {
 // una y retorna la mejor. Si hay empate exacto retorna los candidatos para que
 // el usuario elija; si no hay empate persiste la ganadora directamente.
 
-function generarAgendaOptima(fecha) {
+function generarAgendaOptima(fecha, opciones = {}) {
   const todosPacientes = Pacientes.activos();
 
   if (todosPacientes.length === 0) {
@@ -1197,7 +1291,7 @@ function generarAgendaOptima(fecha) {
 
   // Sin empate en la cima: una sola corrida, persistir directamente
   if (grupoTop.length <= 1) {
-    const resultado = generarAgenda(fecha, { persistir: true });
+    const resultado = generarAgenda(fecha, { persistir: true, cupoPiso: opciones.cupoPiso });
     const indice    = calcularIndiceCalidad(resultado.sesiones, todosPacientes, fecha);
     return { ...resultado, candidatos: null, indice };
   }
@@ -1206,7 +1300,7 @@ function generarAgendaOptima(fecha) {
   const candidatos = [];
   for (let i = 0; i < grupoTop.length; i++) {
     const ordenRotado = [...grupoTop.slice(i), ...grupoTop.slice(0, i), ...resto];
-    const resultado   = generarAgenda(fecha, { ordenOverride: ordenRotado, persistir: false });
+    const resultado   = generarAgenda(fecha, { ordenOverride: ordenRotado, persistir: false, cupoPiso: opciones.cupoPiso });
     const indice      = calcularIndiceCalidad(resultado.sesiones, todosPacientes, fecha);
     candidatos.push({
       sesiones: resultado.sesiones,
@@ -1247,6 +1341,69 @@ function generarAgendaOptima(fecha) {
     ...ganador,
     candidatos: empatados.length > 1 ? empatados : null
   };
+}
+
+// ─── Sugerencia del piso de sesiones (K) ──────────────────────────────────────
+
+// Cuenta rápida, solo orientativa: capacidad profesional del día repartida entre
+// los internados. Ignora que la capacidad está dividida por disciplina.
+function sugerenciaRapidaCupo(fecha) {
+  const estado = DiasState.delDia(fecha);
+  const dia = _weekday(fecha);
+  const excluidos = estado.profesionalesExcluidos || [];
+  const profs = Profesionales.todos()
+    .filter(p => p.activo !== false && _getPresencia(estado, p.id, fecha) && !excluidos.includes(p.id));
+  let capacidad = 0;
+  profs.forEach(p => SLOTS.forEach(s => { if (_disponibilidadProfSlot(p, estado, s, fecha).ok) capacidad++; }));
+
+  const pacientes = Pacientes.activos();
+  const internados = pacientes.filter(p => !p.esAmbulatorio);
+  const ambulatorios = pacientes
+    .filter(p => _ventanaAmbulatoria(p, dia))
+    .reduce((n, p) => n + _horasObjetivoPaciente(p, estado, dia), 0);
+  const rutinas = internados.reduce((n, p) => n + (p.requiereHigiene ? 1 : 0) + (p.requiereAlmuerzoTerapeutico ? 1 : 0), 0);
+  const fijas = Asignaciones.delDia(fecha).filter(s => s.fijo === true).length;
+
+  const neta = Math.max(0, capacidad - ambulatorios - rutinas - fijas);
+  const bruto = internados.length > 0 ? Math.floor(neta / internados.length) : HORAS_OBJETIVO_DIA;
+  return {
+    k: Math.max(1, Math.min(HORAS_OBJETIVO_DIA, bruto)),
+    capacidad, ambulatorios, rutinas, fijas, neta, internados: internados.length
+  };
+}
+
+// Corre el generador real (sin persistir) para cada piso K posible y compara el
+// reparto. K=0 es "sin tope" (modo clásico, paciente por paciente). Respeta todas
+// las reglas porque usa el mismo motor que la generación de verdad.
+function barridoCupoPiso(fecha) {
+  const pacientes = Pacientes.activos();
+  const internados = pacientes.filter(p => !p.esAmbulatorio);
+  const filas = [];
+  for (let k = 0; k <= HORAS_OBJETIVO_DIA; k++) {
+    const res = generarAgenda(fecha, { persistir: false, cupoPiso: k });
+    const cuentas = internados.map(p => res.sesiones.filter(s => s.pacienteId === p.id).length);
+    const piso = k > 0 ? Math.min(k, HORAS_OBJETIVO_DIA) : 0;
+    const faltantes = {};
+    res.alertas.filter(a => a.tipo === 'sin_profesional' && a.disciplina)
+      .forEach(a => { faltantes[a.disciplina] = (faltantes[a.disciplina] || 0) + 1; });
+    filas.push({
+      k,
+      minimo: cuentas.length ? Math.min(...cuentas) : 0,
+      maximo: cuentas.length ? Math.max(...cuentas) : 0,
+      sinSesiones: cuentas.filter(n => n === 0).length,
+      bajoPiso: cuentas.filter(n => n < piso).length,
+      conDeficit: res.alertas.filter(a => a.tipo === 'deficit_horas' && internados.some(p => p.id === a.pacienteId)).length,
+      huecosAmb: res.alertas.filter(a => a.tipo === 'ambulatorio_hueco').length,
+      sesiones: res.sesiones.length,
+      indice: calcularIndiceCalidad(res.sesiones, pacientes, fecha).score,
+      faltantes
+    });
+  }
+  // Sugerido: el K más alto donde todos alcanzan el piso; si ninguno lo logra,
+  // el que deja menos pacientes por debajo (y, a igualdad, el más alto).
+  const candidatos = filas.filter(f => f.k > 0);
+  const sugerido = candidatos.slice().sort((a, b) => a.bajoPiso - b.bajoPiso || b.k - a.k)[0];
+  return { filas, sugerido: sugerido ? sugerido.k : CUPO_PISO_DEFECTO, internados: internados.length };
 }
 
 // ─── Generación slot-por-slot (modo "por horario") ───────────────────────────

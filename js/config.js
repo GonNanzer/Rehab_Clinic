@@ -123,6 +123,9 @@ const SLOT_SOLO_PERFIL = 'slot_13';
 const HORARIOS_VERSION = 2;
 
 const HORAS_OBJETIVO_DIA = 6;
+// Piso de sesiones por paciente en la primera ronda de asignación (0 = sin tope).
+// Se puede cambiar por día desde la UI (DiasState.cupoPiso).
+const CUPO_PISO_DEFECTO = 5;
 const VENTANA_ROTACION_DIAS_ASISTENCIA = 3;
 const VISITAS_MINIMAS_REFERENTE_SEMANA = 2;
 
