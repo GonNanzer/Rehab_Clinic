@@ -293,6 +293,9 @@ function vistaGrilla() {
             data-tooltip="Recorre los pacientes de mayor a menor prioridad y para cada uno busca el mejor profesional y horario disponible. Modo recomendado.">⚡ Por paciente</button>
           <button class="hdr-dd-item" id="btn-generar-horario"
             data-tooltip="Barre cada franja horaria de izquierda a derecha y llena los slots con la mejor combinación paciente-profesional. Refleja el método manual.">⏱ Por horario</button>
+          <div class="hdr-dd-sep"></div>
+          <button class="hdr-dd-item" id="btn-cupo-piso"
+            data-tooltip="Cantidad de sesiones que cada paciente recibe en la primera ronda antes de pasar al siguiente. Más bajo = reparto más parejo. Permite comparar valores y sugiere uno.">⚖ Piso por paciente: ${cupoPisoDelDia(fechaActiva) === 0 ? "sin tope" : "K=" + cupoPisoDelDia(fechaActiva)}</button>
         </div>
       </div>`}
     </div>
@@ -899,6 +902,8 @@ function bindGrilla() {
       }
     }
   }
+
+  document.getElementById('btn-cupo-piso')?.addEventListener('click', () => abrirModalCupoPiso(fechaActiva));
 
   document.getElementById('btn-generar-horario')?.addEventListener('click', () => {
     const estado = DiasState.delDia(fechaActiva);
@@ -2183,6 +2188,96 @@ function eliminarSesion(sesionId, fecha) {
   cerrarModal();
   renderVista();
   mostrarToast('Sesión eliminada', 'info');
+}
+
+// ─── Modal del piso de sesiones por paciente (K) ─────────────────────────────
+
+function abrirModalCupoPiso(fecha) {
+  const actual = cupoPisoDelDia(fecha);
+  const r = sugerenciaRapidaCupo(fecha);
+  window._cupoFecha = fecha;
+  abrirModal(`
+    <div class="modal-header">
+      <h3>Piso de sesiones por paciente (K)</h3>
+      <button class="modal-close" onclick="cerrarModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 10px">En la primera ronda cada paciente recibe hasta <strong>K sesiones</strong> (las fijas,
+      rutinas y urgentes cuentan). Recién después se retoma lo pendiente de cada uno, de arriba hacia abajo.
+      Un K más bajo reparte más parejo; uno más alto se parece al modo clásico. Los ambulatorios siempre se completan.</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <label for="cupo-input"><strong>K para ${esc(formatFecha(fecha))}:</strong></label>
+        <input type="number" id="cupo-input" min="0" max="${HORAS_OBJETIVO_DIA}" step="1" value="${actual}" style="width:70px">
+        <span style="opacity:.7">0 = sin tope (modo clásico)</span>
+      </div>
+      <div style="padding:8px 10px;border-radius:6px;background:var(--color-bg-alt,rgba(0,0,0,.05));margin-bottom:12px;font-size:.9em">
+        <strong>Cuenta rápida (orientativa): K ≈ ${r.k}</strong><br>
+        ${r.capacidad} profesional-horas disponibles − ${r.ambulatorios} de ambulatorios − ${r.rutinas} de rutinas
+        − ${r.fijas} fijas = ${r.neta} para ${r.internados} internados.
+        No considera que la capacidad se reparte por disciplina; para eso usá la comparación.
+      </div>
+      <button class="btn btn-secondary" id="btn-cupo-barrido" onclick="ejecutarBarridoCupo()">📊 Comparar valores de K con el motor real</button>
+      <div id="cupo-resultado" style="margin-top:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="guardarCupoPiso(false)">Guardar K</button>
+      <button class="btn btn-primary" onclick="guardarCupoPiso(true)">Guardar y generar</button>
+    </div>
+  `, 'wide');
+}
+
+function ejecutarBarridoCupo() {
+  const cont = document.getElementById('cupo-resultado');
+  if (!cont) return;
+  cont.innerHTML = '<em>Calculando…</em>';
+  setTimeout(() => {
+    const fecha = window._cupoFecha;
+    const { filas, sugerido, internados } = barridoCupoPiso(fecha);
+    const filaSug = filas.find(f => f.k === sugerido);
+    const nombreDisc = d => DISCIPLINAS[d]?.label || ({ _higiene: 'Higiene', _almuerzo: 'Almuerzo' })[d] || d;
+    const top = Object.entries(filaSug.faltantes).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([d, n]) => `${esc(nombreDisc(d))} ×${n}`).join(', ');
+    const filasHtml = filas.map(f => {
+      const esSug = f.k === sugerido;
+      return `<tr style="${esSug ? 'font-weight:600;background:rgba(34,197,94,.15)' : ''}">
+        <td>${f.k === 0 ? 'Sin tope' : f.k}${esSug ? ' ★' : ''}</td>
+        <td>${f.minimo}–${f.maximo}</td>
+        <td>${f.k === 0 ? '—' : f.bajoPiso}</td>
+        <td>${f.sinSesiones}</td>
+        <td>${f.conDeficit}</td>
+        <td>${f.huecosAmb}</td>
+        <td>${f.indice}%</td>
+        <td><button class="btn btn-sm" onclick="document.getElementById('cupo-input').value=${f.k}">Usar</button></td>
+      </tr>`;
+    }).join('');
+    cont.innerHTML = `
+      <table class="tabla-simple" style="width:100%;text-align:center;border-collapse:collapse">
+        <thead><tr>
+          <th>K</th><th>Sesiones por paciente (mín–máx)</th><th>Pacientes bajo el piso</th>
+          <th>Sin sesiones</th><th>Con déficit</th><th>Huecos amb.</th><th>Índice</th><th></th>
+        </tr></thead>
+        <tbody>${filasHtml}</tbody>
+      </table>
+      <p style="margin:8px 0 0;font-size:.9em">
+        Sobre ${internados} internados. <strong>Sugerido: K=${sugerido}</strong>
+        (${filaSug.bajoPiso === 0 ? 'el más alto en que todos alcanzan el piso' : `deja ${filaSug.bajoPiso} paciente(s) bajo el piso`}).
+        ${top ? `<br>Más faltantes de profesionales con K=${sugerido}: ${top}.` : ''}
+      </p>`;
+  }, 30);
+}
+
+function guardarCupoPiso(generar) {
+  const fecha = window._cupoFecha;
+  const n = parseInt(document.getElementById('cupo-input')?.value, 10);
+  if (!Number.isInteger(n) || n < 0 || n > HORAS_OBJETIVO_DIA) {
+    mostrarToast(`K debe ser un entero entre 0 y ${HORAS_OBJETIVO_DIA}`, 'error');
+    return;
+  }
+  DiasState.guardar(fecha, { cupoPiso: n });
+  cerrarModal();
+  if (generar) document.getElementById('btn-generar')?.click();
+  else { renderVista(); mostrarToast(`Piso de sesiones: ${n === 0 ? 'sin tope' : 'K=' + n}`, 'success'); }
 }
 
 // ─── Modal de comparación de agendas empatadas ───────────────────────────────
