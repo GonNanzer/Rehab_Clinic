@@ -159,3 +159,11 @@ const STORAGE_KEYS = {
   historial:      'rehab_historial',
   auditoria:      'rehab_auditoria'
 };
+
+// Formato único para mostrar personas (pacientes y profesionales): "Apellido, Nombre".
+function apeNom(p) {
+  if (!p) return '';
+  const ape = (p.apellido || '').trim();
+  const nom = (p.nombre || '').trim();
+  return ape && nom ? `${ape}, ${nom}` : (ape || nom);
+}

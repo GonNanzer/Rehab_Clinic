@@ -90,6 +90,7 @@ let modoSwap = null;                // { sesionId, fecha } mientras se espera la
 let modoRotacion = null;            // { cola: [{ sesionId, fecha }] } para rotación de N sesiones
 let modoMover = null;               // { sesionId, fecha, pacienteId } mientras se espera el slot destino
 let filtroProf = null;              // id del profesional activo en el filtro de grilla (null = todos)
+let ordenGrilla = (() => { try { return localStorage.getItem('rehab_orden_grilla') === 'alfabetico' ? 'alfabetico' : 'prioridad'; } catch { return 'prioridad'; } })(); // 'prioridad' | 'alfabetico'
 let pacSeleccionadoLista  = null;   // paciente seleccionado en "Lista por profesional"
 let profSeleccionadoLista = null;  // profesional seleccionado en "Lista por profesional"
 let sesionesCola = [];              // [{ pacienteId, profesionalId, disciplina, slotOriginal, esAlmuerzo, motivo, urgente }]
@@ -250,6 +251,10 @@ function vistaGrilla() {
       <input type="date" id="fecha-picker" value="${fechaActiva}" class="date-input">
     </div>
     <div class="vista-header-right">
+      <select id="orden-grilla" class="select-field" style="max-width:170px" title="Orden de los pacientes en la agenda">
+        <option value="prioridad" ${ordenGrilla === 'prioridad' ? 'selected' : ''}>Orden: prioridad</option>
+        <option value="alfabetico" ${ordenGrilla === 'alfabetico' ? 'selected' : ''}>Orden: alfabético</option>
+      </select>
       ${tieneSesiones && profsHoy.length > 0 ? `
       <select id="filtro-prof" class="select-field" style="max-width:200px" title="Filtrar por profesional">
         <option value="">Todos los profesionales</option>
@@ -350,7 +355,7 @@ function vistaGrilla() {
           const activo = modoColocarDeCola?.idx === idx;
           return `<div class="cola-item${activo ? ' cola-item-activo' : ''}">
             <div class="cola-item-info">
-              <strong>${esc(pac?.apellido || '—')}</strong>
+              <strong>${esc(apeNom(pac) || '—')}</strong>
               ${discChip(item.disciplina, true)}
               <span class="text-muted" style="font-size:11px">${esc(Profesionales.iniciales(prof))} ${esc(prof?.apellido || '')}</span>
               <span class="cola-slot-orig">era ${esc(slot?.inicio || item.slotOriginal)}</span>
@@ -435,7 +440,9 @@ function vistaGrilla() {
     </tr></thead>
     <tbody>`;
 
-  pacientes.sort((a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a))
+  pacientes.sort(ordenGrilla === 'alfabetico'
+      ? (a, b) => (a.apellido || '').localeCompare(b.apellido || '', 'es') || (a.nombre || '').localeCompare(b.nombre || '', 'es')
+      : (a, b) => Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a))
     .forEach(pac => {
       const misSesiones = sesiones.filter(s => s.pacienteId === pac.id);
       const estadoDia = DiasState.delDia(fechaActiva);
@@ -475,7 +482,7 @@ function vistaGrilla() {
 
       html += `<tr>
         <td class="grilla-pac-cell">
-          <div class="pac-nombre">${esc(pac.nombre)} ${esc(pac.apellido)}</div>
+          <div class="pac-nombre">${esc(apeNom(pac))}</div>
           <div class="pac-info">
             <span class="horas-num" style="color:${_barColor}">${misSesiones.length}/${_objHoras}</span>
             ${_barraTurno(SLOTS_BARRA_MANANA)}
@@ -574,7 +581,7 @@ function vistaGrilla() {
       const disc = DISCIPLINAS[s.disciplina];
       return `<div class="sidebar-sesion-item">
         <span class="sidebar-sesion-hora">${esc(slot?.inicio || '')}</span>
-        <span class="sidebar-sesion-pac">${esc(pac?.apellido || '—')}</span>
+        <span class="sidebar-sesion-pac">${esc(apeNom(pac) || '—')}</span>
         <span class="sidebar-sesion-disc" style="background:${disc?.bg||'#eee'};color:${disc?.color||'#333'}">${esc(disc?.corto || s.disciplina)}</span>
       </div>`;
     }).join('');
@@ -931,6 +938,13 @@ function bindGrilla() {
       const fecha    = ic.dataset.fecha;
       toggleFijoSesion(sesionId, fecha);
     });
+  });
+
+  // Orden de pacientes en la agenda
+  document.getElementById('orden-grilla')?.addEventListener('change', e => {
+    ordenGrilla = e.target.value === 'alfabetico' ? 'alfabetico' : 'prioridad';
+    try { localStorage.setItem('rehab_orden_grilla', ordenGrilla); } catch {}
+    renderVista();
   });
 
   // Filtro por profesional
@@ -1982,7 +1996,7 @@ function confirmarSwap(sesion2Id, fecha2) {
         <p class="text-muted" style="margin:0 0 6px;font-size:12px">${esc(c.desc)}</p>
         <div class="conflicto-sesion-fila">
           <span class="conflicto-lbl">Paciente</span>
-          <span>${esc(cpac?.apellido || '—')}</span>
+          <span>${esc(apeNom(cpac) || '—')}</span>
         </div>
         <div class="conflicto-sesion-fila">
           <span class="conflicto-lbl">Disciplina</span>
@@ -3287,7 +3301,7 @@ function guardarBanosPac(pacId) {
   const label = `Actualizado: ${DIAS_SEMANA[ahora.getDay()]} ${ahora.toLocaleDateString('es-AR')}`;
   const el = document.getElementById(`bano-fecha-${pacId}`);
   if (el) el.textContent = label;
-  mostrarToast(`Baños de ${pac.nombre} guardados`, 'success');
+  mostrarToast(`Baños de ${apeNom(pac)} guardados`, 'success');
 }
 
 function abrirCopiarDiaBano(pacId, diaOrigen) {
@@ -3466,7 +3480,7 @@ function _banoRenderCell(dia, slotId) {
   const chips = items.map(it => {
     const pac = Pacientes.porId(it.pacienteId);
     return `<div class="bano-chip">
-      <span class="bano-chip-nombre" title="${esc(pac ? pac.apellido + ', ' + pac.nombre : '')}">${esc(pac?.apellido || '?')} ${esc(pac?.nombre || '')}</span>
+      <span class="bano-chip-nombre" title="${esc(apeNom(pac))}">${esc(apeNom(pac) || '?')}</span>
       <button type="button" class="bano-chip-flag${it.bloqAnterior ? ' activo' : ''}"
         title="Bloquear la hora anterior" onclick="_banoToggleFlag(${dia},'${slotId}','${it.pacienteId}','bloqAnterior')">◀</button>
       <button type="button" class="bano-chip-flag${it.bloqSiguiente ? ' activo' : ''}"
@@ -3500,7 +3514,7 @@ function _banoFiltrar(input, dia, slotId) {
   const yaAgregados = new Set((_banoGridState[dia][slotId] || []).map(it => it.pacienteId));
   const matches = Pacientes.activos()
     .filter(p => !yaAgregados.has(p.id))
-    .filter(p => `${p.nombre} ${p.apellido}`.toLowerCase().includes(q))
+    .filter(p => `${p.nombre} ${p.apellido} ${apeNom(p)}`.toLowerCase().includes(q))
     .slice(0, 8);
 
   dd.innerHTML = matches.length
@@ -3664,7 +3678,7 @@ function editarPaciente(id) { abrirFormPaciente(Pacientes.porId(id)); }
 
 function egresarPaciente(id) {
   const p = Pacientes.porId(id);
-  if (confirm(`¿Marcar a ${p?.nombre} ${p?.apellido} como egresado? Quedará fuera de la agenda diaria pero se puede reactivar desde "Pacientes Egresados".`)) {
+  if (confirm(`¿Marcar a ${apeNom(p)} como egresado? Quedará fuera de la agenda diaria pero se puede reactivar desde "Pacientes Egresados".`)) {
     Pacientes.actualizar(id, { egresado: true });
     renderVista();
     mostrarToast('Paciente marcado como egresado', 'info');
@@ -3673,7 +3687,7 @@ function egresarPaciente(id) {
 
 function eliminarPaciente(id) {
   const p = Pacientes.porId(id);
-  if (confirm(`¿Eliminar a ${p?.nombre} ${p?.apellido}? Esta acción no se puede deshacer.`)) {
+  if (confirm(`¿Eliminar a ${apeNom(p)}? Esta acción no se puede deshacer.`)) {
     Pacientes.eliminar(id);
     renderVista();
     mostrarToast('Paciente eliminado', 'info');
@@ -4248,7 +4262,7 @@ function editarProf(id) { abrirFormProf(Profesionales.porId(id)); }
 
 function eliminarProf(id) {
   const p = Profesionales.porId(id);
-  if (confirm(`¿Eliminar a ${p?.nombre} ${p?.apellido}?`)) {
+  if (confirm(`¿Eliminar a ${apeNom(p)}?`)) {
     Profesionales.eliminar(id);
     renderVista();
   }
@@ -4495,11 +4509,11 @@ function _leerGridHorarios() {
 
 function verPacientesExcluidosDeProf(profId) {
   const prof = Profesionales.todos().find(p => p.id === profId);
-  const nombreProf = prof ? `${prof.nombre} ${prof.apellido}` : 'este profesional';
+  const nombreProf = prof ? `${apeNom(prof)}` : 'este profesional';
   const excluidos = Pacientes.todos().filter(p => (p.exclusionesProfesionales || []).includes(profId));
   const listaHtml = excluidos.length === 0
     ? '<p class="empty-state" style="padding:16px 0">No hay pacientes excluidos de este profesional.</p>'
-    : `<ul style="padding-left:20px;line-height:2">${excluidos.map(p => `<li>${p.nombre} ${p.apellido}</li>`).join('')}</ul>`;
+    : `<ul style="padding-left:20px;line-height:2">${excluidos.map(p => `<li>${apeNom(p)}</li>`).join('')}</ul>`;
   const html = `<div class="modal-header"><h2>Pacientes excluidos — ${nombreProf}</h2></div>
     <div class="modal-body">${listaHtml}</div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="cerrarModal()">Cerrar</button></div>`;
@@ -4886,7 +4900,7 @@ function vistaDisponibilidad() {
             </select>
           </div>
           <div class="card-body" style="flex:1;overflow-y:auto;max-height:420px">
-            <div class="text-muted" style="margin-bottom:10px;font-size:12px">Horarios bloqueados para ${esc(pac?.nombre||'')}:</div>
+            <div class="text-muted" style="margin-bottom:10px;font-size:12px">Horarios bloqueados para ${esc(apeNom(pac))}:</div>
             ${(pac?.bloqueosPermanentes||[]).length > 0 ? `
             <div class="bloq-tipo-legend" style="font-size:11px;margin-bottom:8px">
               <span class="bloq-tipo-badge bloq-perm-badge">🔒 Perfil</span> permanente &nbsp;·&nbsp;
@@ -4937,7 +4951,7 @@ function vistaDisponibilidad() {
             </select>
           </div>
           <div class="card-body">
-            <div class="text-muted" style="margin-bottom:10px;font-size:12px">Horarios bloqueados puntualmente para ${esc(Profesionales.porId(profSeleccionadoBloqDisp)?.apellido||'')}:</div>
+            <div class="text-muted" style="margin-bottom:10px;font-size:12px">Horarios bloqueados puntualmente para ${esc(apeNom(Profesionales.porId(profSeleccionadoBloqDisp)))}:</div>
             <div class="slot-check-grid">
               ${(() => {
                 const bloqsProf = (estadoGuardado||DiasState.delDia(fechaActiva)).bloqueosProfesionales?.[profSeleccionadoBloqDisp] || [];
@@ -4962,13 +4976,13 @@ function vistaDisponibilidad() {
       </div>
 
       <div class="card">
-        <div class="card-head"><strong>Asignaciones necesarias</strong> — ${esc(pac?.nombre||'')} ${esc(pac?.apellido||'')}</div>
+        <div class="card-head"><strong>Asignaciones necesarias</strong> — ${esc(apeNom(pac))}</div>
         <div class="card-body">
           <div class="text-muted" style="margin-bottom:8px">Sesiones que deben asignarse hoy para este paciente:</div>
           <div id="lista-prescripciones">
             ${prescripciones.length === 0 ? '<em>Sin asignaciones necesarias</em>' :
               prescripciones.map((pr, i) => {
-                const profLabel = pr.profesionalId ? (Profesionales.porId(pr.profesionalId) ? esc(Profesionales.porId(pr.profesionalId).nombre + ' ' + Profesionales.porId(pr.profesionalId).apellido) : 'Prof. desconocido') : 'Cualquier profesional';
+                const profLabel = pr.profesionalId ? (Profesionales.porId(pr.profesionalId) ? esc(apeNom(Profesionales.porId(pr.profesionalId))) : 'Prof. desconocido') : 'Cualquier profesional';
                 return `<div class="prescripcion-item">
                   ${discChip(pr.disciplina, true)} x${pr.veces}${pr.profesionalId ? ' · <strong>' + profLabel + '</strong>' : ''}${pr.motivo ? ' — ' + esc(pr.motivo) : ''}
                   <button class="btn btn-sm btn-danger" onclick="eliminarPrescripcion(${i})">✕</button>
@@ -5279,7 +5293,7 @@ function abrirModalPrescripcion() {
       <label>Profesional</label>
       <select id="presc-prof" class="select-field">
         <option value="">— Cualquiera —</option>
-        ${profsInicial.map(p => `<option value="${p.id}">${esc(p.nombre + ' ' + p.apellido)}</option>`).join('')}
+        ${profsInicial.map(p => `<option value="${p.id}">${esc(apeNom(p))}</option>`).join('')}
       </select>
       <div class="text-muted" style="font-size:12px;margin-top:4px">Solo muestra profesionales presentes hoy con esa disciplina</div>
     </div>
@@ -5305,7 +5319,7 @@ function _actualizarProfsModal() {
   if (!sel || !disc) return;
   const profs = _profsPresEnDisc(disc);
   sel.innerHTML = '<option value="">— Cualquiera —</option>' +
-    profs.map(p => `<option value="${p.id}">${esc(p.nombre + ' ' + p.apellido)}</option>`).join('');
+    profs.map(p => `<option value="${p.id}">${esc(apeNom(p))}</option>`).join('');
 }
 
 function guardarPrescripcion() {
@@ -5430,7 +5444,7 @@ function vistaHistorial() {
 
   // Lista de selección
   const opciones = esPac
-    ? pacientes.map(p => ({ id: p.id, label: `${p.nombre} ${p.apellido}` }))
+    ? pacientes.map(p => ({ id: p.id, label: `${apeNom(p)}` }))
     : profesionales.map(p => ({ id: p.id, label: Profesionales.nombreCompleto(p) }));
 
   let html = `
@@ -5477,7 +5491,7 @@ function vistaHistorialPaciente(pacienteId) {
 
   if (fechas.length === 0) {
     return `<div class="empty-state"><div class="empty-icon">📋</div>
-      <p>${esc(pac.nombre)} ${esc(pac.apellido)} no tiene sesiones registradas.</p></div>`;
+      <p>${esc(apeNom(pac))} no tiene sesiones registradas.</p></div>`;
   }
 
   // Estadísticas globales
@@ -5490,7 +5504,7 @@ function vistaHistorialPaciente(pacienteId) {
   const profesUnicos = new Set(todasSesiones.map(s => s.profesionalId)).size;
 
   let html = `
-  <div class="hist-nombre">${esc(pac.nombre)} ${esc(pac.apellido)}</div>
+  <div class="hist-nombre">${esc(apeNom(pac))}</div>
   <div class="hist-stats">
     <div class="hist-stat"><span class="hist-stat-num">${totalSesiones}</span><span class="hist-stat-lbl">Sesiones</span></div>
     <div class="hist-stat"><span class="hist-stat-num">${fechas.length}</span><span class="hist-stat-lbl">Días</span></div>
@@ -5606,7 +5620,7 @@ function vistaHistorialProfesional(profesionalId) {
       const col = d ? d.color : '#333';
       const brd = d ? d.border : '#ccc';
       const lbl = s.disciplina === '_almuerzo' ? '🍽' : (s.disciplina === '_higiene' ? '🧼' : (d ? d.corto : s.disciplina));
-      const nomPac = pac ? `${pac.nombre} ${pac.apellido}` : 'Sin paciente';
+      const nomPac = pac ? `${apeNom(pac)}` : 'Sin paciente';
       const slot = SLOTS.find(sl => sl.id === s.slotId);
       html += `<span class="hist-chip" style="background:${bg};color:${col};border-color:${brd}" title="${esc(nomPac)} · ${discLabel(s.disciplina)} · ${slot ? slot.label : s.slotId}">${esc(lbl)} ${pac ? esc(pac.apellido.slice(0, 8)) : '?'}</span>`;
     });
@@ -5620,7 +5634,7 @@ function vistaHistorialProfesional(profesionalId) {
   const conteo = {};
   todasSesiones.forEach(s => {
     const pac = Pacientes.porId(s.pacienteId);
-    const nombre = pac ? `${pac.nombre} ${pac.apellido}` : s.pacienteId;
+    const nombre = pac ? `${apeNom(pac)}` : s.pacienteId;
     conteo[nombre] = (conteo[nombre] || 0) + 1;
   });
   const max = Math.max(...Object.values(conteo), 1);

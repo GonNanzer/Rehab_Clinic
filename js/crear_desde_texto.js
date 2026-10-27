@@ -186,7 +186,7 @@ function _cdtEvaluar() {
     const pac  = Pacientes.porId(f.pacSel);
     const prof = Profesionales.porId(f.profSel);
     const slot = SLOTS.find(s => s.id === f.slotId);
-    const nomPac = pac ? `${pac.apellido} ${pac.nombre}` : '?';
+    const nomPac = pac ? `${apeNom(pac)}` : '?';
     const error = msg => { f.errores.push(msg); f.estado = 'error'; };
 
     if (!_discPermitida(f.disc)) return error('Solo podés crear sesiones de tu área');
@@ -225,7 +225,7 @@ function _cdtEvaluar() {
       if (!dualOk) {
         const otro = Pacientes.porId(ocupantes[0].pacienteId);
         return error(`${Profesionales.nombreCompleto(prof)} ya tiene una sesión en ${slot.label}` +
-          (otro ? ` (${otro.apellido} ${otro.nombre})` : ''));
+          (otro ? ` (${apeNom(otro)})` : ''));
       }
     }
 
@@ -296,7 +296,7 @@ function _cdtRenderRevisar() {
   const nOk = _cdt.filas.filter(f => f.estado === 'ok').length;
   const nPreg = _cdt.filas.filter(f => f.estado === 'pregunta').length;
   const nErr = _cdt.filas.filter(f => f.estado === 'error').length;
-  const labPac  = id => { const p = Pacientes.porId(id); return p ? `${p.apellido} ${p.nombre}` : '?'; };
+  const labPac  = id => { const p = Pacientes.porId(id); return p ? `${apeNom(p)}` : '?'; };
   const labProf = id => Profesionales.nombreCompleto(Profesionales.porId(id));
 
   const filas = _cdt.filas.map((f, i) => {

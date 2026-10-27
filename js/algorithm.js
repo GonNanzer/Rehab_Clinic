@@ -838,7 +838,7 @@ function calcularIndiceCalidad(sesiones, pacientes, fecha) {
 
     detallesPacientes.push({
       pacienteId: pac.id,
-      nombre:     `${pac.nombre} ${pac.apellido}`,
+      nombre:     `${apeNom(pac)}`,
       necesitadas,
       cubiertas,
       pct: Math.round(ratio * 100)
@@ -1060,7 +1060,7 @@ function _avanzarPacienteDia(est, S, cupo) {
       alertas.push({
         tipo: resultado.razon,
         pacienteId: paciente.id,
-        pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+        pacienteNombre: `${apeNom(paciente)}`,
         disciplina: nec.disciplina,
         msg: resultado.msg
       });
@@ -1081,9 +1081,9 @@ function _cerrarPacienteDia(est, S) {
     sinCubrir.forEach(slot => alertas.push({
       tipo: 'ambulatorio_hueco',
       pacienteId: paciente.id,
-      pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+      pacienteNombre: `${apeNom(paciente)}`,
       slotId: slot.id,
-      msg: `${paciente.nombre} ${paciente.apellido} (ambulatorio): sin sesión a las ${slot.label} — ` +
+      msg: `${apeNom(paciente)} (ambulatorio): sin sesión a las ${slot.label} — ` +
            `no hay profesional disponible con una disciplina de su plan. Revisá la carga de datos.`
     }));
   }
@@ -1094,10 +1094,10 @@ function _cerrarPacienteDia(est, S) {
     alertas.push({
       tipo: 'deficit_horas',
       pacienteId: paciente.id,
-      pacienteNombre: `${paciente.nombre} ${paciente.apellido}`,
+      pacienteNombre: `${apeNom(paciente)}`,
       horasAsignadas: logradas,
       horasObjetivo: objetivo,
-      msg: `${paciente.nombre} ${paciente.apellido}: ${logradas}/${objetivo} horas asignadas`
+      msg: `${apeNom(paciente)}: ${logradas}/${objetivo} horas asignadas`
     });
   }
 }
@@ -1844,7 +1844,7 @@ function mejoraLocal(fecha) {
           sesiones.push(resultado.sesion);
           sesionesAgregadas++;
           cambio = true;
-          detalles.push(`✓ ${discLabel(nec.disciplina)} → ${pac.nombre} ${pac.apellido}`);
+          detalles.push(`✓ ${discLabel(nec.disciplina)} → ${apeNom(pac)}`);
           break;
         }
 
@@ -1928,7 +1928,7 @@ function mejoraLocal(fecha) {
                 esAlmuerzo:    false,
                 origen:        'automatico_mejora',
                 puntaje:       0,
-                motivo:        `Mejora local — swap con ${pacDonor.nombre} ${pacDonor.apellido}`,
+                motivo:        `Mejora local — swap con ${apeNom(pacDonor)}`,
                 urgente:       false,
                 creadoEn:      new Date().toISOString()
               });
@@ -1939,7 +1939,7 @@ function mejoraLocal(fecha) {
               swapEncontrado = true;
               detalles.push(
                 `↕ swap (${pacDonor.apellido} ${slotLiberadoDef.label}→${nuevoSlot.label}) ` +
-                `+ ${discLabel(nec.disciplina)} → ${pac.nombre} ${pac.apellido}`
+                `+ ${discLabel(nec.disciplina)} → ${apeNom(pac)}`
               );
               break;
             }
@@ -2123,7 +2123,7 @@ function rellenarEspaciosVaciosAuto(fecha) {
         const slot = SLOTS.find(sl => sl.id === sesiones[i].slotId);
         const prof = Profesionales.porId(sesiones[i].profesionalId);
         detalles.push(
-          `+ ${discLabel(sesiones[i].disciplina)} → ${pac.nombre} ${pac.apellido} ` +
+          `+ ${discLabel(sesiones[i].disciplina)} → ${apeNom(pac)} ` +
           `(${slot?.label}, ${prof ? Profesionales.nombreCompleto(prof) : '?'})`
         );
       }
@@ -2150,7 +2150,7 @@ function rellenarEspaciosVaciosAuto(fecha) {
         sesionesAgregadas++;
         const prof = Profesionales.porId(sesion.profesionalId);
         detalles.push(
-          `+ ${discLabel(sesion.disciplina)} → ${pac.nombre} ${pac.apellido} ` +
+          `+ ${discLabel(sesion.disciplina)} → ${apeNom(pac)} ` +
           `(${slot.label}, ${prof ? Profesionales.nombreCompleto(prof) : '?'})`
         );
       }
