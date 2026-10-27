@@ -324,7 +324,7 @@ const Profesionales = {
 
   nombreCompleto(prof) {
     if (!prof) return 'Desconocido';
-    return `${prof.nombre || ''} ${prof.apellido || ''}`.trim();
+    return apeNom(prof);
   },
 
   iniciales(prof) {

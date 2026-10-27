@@ -4,7 +4,12 @@ function _pdf_buildDoc(sesiones, fecha, titulo, opciones) {
   opciones = opciones || {};
 
   const pacientes = Pacientes.activos()
-    .sort(function(a, b) { return Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a); });
+    .sort(function(a, b) {
+      if (typeof ordenGrilla !== 'undefined' && ordenGrilla === 'alfabetico') {
+        return (a.apellido || '').localeCompare(b.apellido || '', 'es') || (a.nombre || '').localeCompare(b.nombre || '', 'es');
+      }
+      return Pacientes.scorePrioridad(b) - Pacientes.scorePrioridad(a);
+    });
 
   const estado = DiasState.delDia(fecha);
 
