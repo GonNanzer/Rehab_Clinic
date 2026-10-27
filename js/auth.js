@@ -16,8 +16,18 @@ async function requireAuth() {
     return null;
   }
 
-  const email = session.user.email;
-  const uid   = session.user.id;
+  // getSession() solo lee el token guardado en el dispositivo: un usuario borrado
+  // de Supabase Auth seguiría "adentro" hasta que venza. getUser() lo valida
+  // contra el servidor y falla si el usuario ya no existe.
+  const user = await _validarUsuarioEnServidor();
+  if (!user) {
+    await _cerrarSesionLocal();
+    _irALogin('no_autorizado');
+    return null;
+  }
+
+  const email = user.email;
+  const uid   = user.id;
 
   // ── 1. Verificar si es admin (tabla usuarios_permitidos) ──────────────────
   const { data: permitido } = await supabaseClient
@@ -78,7 +88,44 @@ async function requireAuth() {
   return null;
 }
 
+// Devuelve el usuario si el servidor lo reconoce; null si ya no existe o el
+// token es inválido. Ante un error de red devuelve el de la sesión local para
+// no echar a nadie por una conexión caída (el celular pierde señal seguido).
+async function _validarUsuarioEnServidor() {
+  const { data, error } = await supabaseClient.auth.getUser();
+  if (data?.user) return data.user;
+  const rechazado = error && (
+    [400, 401, 403, 404].includes(error.status) ||
+    ['user_not_found', 'session_not_found', 'bad_jwt', 'refresh_token_not_found'].includes(error.code)
+  );
+  if (rechazado) return null;
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  return session?.user || null;
+}
+
+async function _cerrarSesionLocal() {
+  try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (_) { /* usuario ya borrado */ }
+}
+
+// Si la app queda abierta (típico en el celular), revalida al volver a primer plano.
+let _ultimaRevalidacion = 0;
+function _revalidarAlVolver() {
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - _ultimaRevalidacion < 60000) return;
+    _ultimaRevalidacion = Date.now();
+    if (!(await _validarUsuarioEnServidor())) {
+      await _cerrarSesionLocal();
+      _irALogin('no_autorizado');
+    }
+  });
+}
+
+let _watching = false;
 function _watchSignOut() {
+  if (_watching) return;
+  _watching = true;
+  _revalidarAlVolver();
   supabaseClient.auth.onAuthStateChange((evento) => {
     if (evento === 'SIGNED_OUT') _irALogin();
   });
