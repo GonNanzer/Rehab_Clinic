@@ -882,7 +882,8 @@ function _presenciaConRango(pres) {
 //   · Tiene que estar presente ese día (panel de disponibilidad).
 //   · Si el operario indicó ingreso/retiro para ese día, ese rango REEMPLAZA al
 //     horario habitual (puede acortarlo o alargarlo). El panel no distingue el 13:00,
-//     así que con rango el profesional queda fuera de ese slot.
+//     así que ahí manda el perfil: el 13:00 se usa si el rango lo cubre Y el
+//     profesional lo tiene tildado en su perfil para ese día de la semana.
 //   · Con "horario habitual", se usa el perfil: solo los slots tildados (el 13:00 es opt-in).
 //     Un día sin horarios cargados en el perfil (presencia marcada a mano en un día no
 //     laboral) cubre el día completo salvo el 13:00.
@@ -897,8 +898,8 @@ function _disponibilidadProfSlot(prof, estado, slot, fecha) {
   if (bloq) return { ok: false, razon: 'Tiene el horario bloqueado' + (bloq.motivo ? ` (${bloq.motivo})` : '') };
 
   if (_presenciaConRango(pres)) {
-    if (slot.id === SLOT_SOLO_PERFIL)
-      return { ok: false, razon: 'Cambió su horario ese día: las 13:00 solo se usan con el horario habitual' };
+    if (slot.id === SLOT_SOLO_PERFIL && !((prof.horariosPorDia || {})[_weekday(fecha)] || []).includes(SLOT_SOLO_PERFIL))
+      return { ok: false, razon: 'No tiene tildadas las 13:00 en su perfil' };
     if (slot.inicio >= pres.ingreso && slot.fin <= pres.retiro) return { ok: true };
     return { ok: false, razon: `Fuera del horario del día (${pres.ingreso}–${pres.retiro})` };
   }
