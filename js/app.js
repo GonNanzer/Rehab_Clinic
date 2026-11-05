@@ -84,6 +84,7 @@ let vistaActiva = 'grilla';
 let pacientesLayout = 'cards';      // 'cards' | 'lista'
 let profesionalesLayout = 'cards';  // 'cards' | 'lista'
 let banosLayout = 'grilla';         // 'grilla' | 'paciente'
+let banosSemanaSel = 'actual';      // 'actual' | 'siguiente' — semana que se está viendo/editando en Horarios de Baño
 let pacientesOrden = 'apellido';    // 'apellido' | 'grupo'
 let profesionalesOrden = 'apellido'; // 'apellido' | 'disciplina'
 let modoSwap = null;                // { sesionId, fecha } mientras se espera la segunda sesión
@@ -457,7 +458,7 @@ function vistaGrilla() {
       (pac.bloqueosPermanentes || []).forEach(b => { _bEst[b.slotId] = b; });
       // Bloqueos de baño: estructurales día-específicos
       const _diaGrilla = _weekday(fechaActiva);
-      (pac.bañosSemana || []).forEach(b => {
+      banosParaFecha(pac, fechaActiva).forEach(b => {
         if (b.dia === _diaGrilla && !_bEst[b.slotId])
           _bEst[b.slotId] = { motivo: 'Baño' };
       });
@@ -476,7 +477,7 @@ function vistaGrilla() {
         }
       }
 
-      const _objHoras = _horasObjetivoPaciente(pac, estadoDia, _diaNum); // ambulatorio: todos los slots de su ventana
+      const _objHoras = _horasObjetivoPaciente(pac, estadoDia, _diaNum, fechaActiva); // ambulatorio: todos los slots de su ventana
       const _pct = Math.round(misSesiones.length / (_objHoras || HORAS_OBJETIVO_DIA) * 100);
       const _barColor = pctColor(_pct);
       const _barraTurno = (slotIds) => '<span class="turno-barra">' + slotIds.map(id => {
@@ -3188,10 +3189,23 @@ function vistaBanos() {
     <button class="layout-btn${banosLayout==='paciente'?' active':''}" onclick="setBanosLayout('paciente')" title="Por paciente">👤 Por paciente</button>
   </div>`;
 
+  const lunesActual = lunesDeSemana(hoyLocal());
+  const lunesSig = sumarDiasISO(lunesActual, 7);
+  const _rango = l => `${_fmtDiaMes(l)} – ${_fmtDiaMes(sumarDiasISO(l, 6))}`;
+  const semanaToggle = `<div class="layout-toggle">
+    <button class="layout-btn${banosSemanaSel==='actual'?' active':''}" onclick="setBanosSemana('actual')" title="Semana en curso">Esta semana (${_rango(lunesActual)})</button>
+    <button class="layout-btn${banosSemanaSel==='siguiente'?' active':''}" onclick="setBanosSemana('siguiente')" title="Cargar por adelantado la semana siguiente">Próxima semana (${_rango(lunesSig)})</button>
+  </div>`;
+  const copiarSig = banosSemanaSel === 'siguiente'
+    ? `<button class="btn btn-secondary btn-sm" onclick="copiarBanosSemanaActualASiguiente()" title="Copia los horarios de esta semana a la próxima (reemplaza lo cargado)">Copiar de esta semana</button>`
+    : '';
+
   const header = `<div class="vista-header">
     <div class="vista-header-left"><h2>Horarios de Baño</h2></div>
-    <div class="vista-header-right" style="display:flex;gap:8px;align-items:center">
+    <div class="vista-header-right" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${semanaToggle}
       ${layoutToggle}
+      ${copiarSig}
       <button class="btn btn-danger btn-sm" onclick="borrarTodosLosBanos()">Borrar todos</button>
     </div>
   </div>`;
@@ -3203,11 +3217,40 @@ function vistaBanos() {
   return header + (banosLayout === 'grilla' ? _banosVistaGrilla() : _banosVistaPorPaciente(pacientes));
 }
 
+const _fmtDiaMes = iso => { const [, m, d] = iso.split('-'); return `${Number(d)}/${Number(m)}`; };
+
+// Lunes (YYYY-MM-DD) de la semana seleccionada en Horarios de Baño.
+function _banoLunesSel() {
+  const actual = lunesDeSemana(hoyLocal());
+  return banosSemanaSel === 'siguiente' ? sumarDiasISO(actual, 7) : actual;
+}
+
+function setBanosSemana(sel) {
+  if (sel === banosSemanaSel) return;
+  banosSemanaSel = sel;
+  _banoGridState = null; // la grilla se recarga con los datos de la otra semana
+  renderVista();
+}
+
+function copiarBanosSemanaActualASiguiente() {
+  const actual = lunesDeSemana(hoyLocal());
+  const sig = sumarDiasISO(actual, 7);
+  const pacientes = Pacientes.activos();
+  if (!pacientes.some(p => banosDeSemana(p, actual).length > 0)) { alert('Esta semana no tiene horarios de baño cargados.'); return; }
+  if (!confirm('¿Copiar los horarios de baño de esta semana a la próxima? Reemplaza lo que ya esté cargado en la próxima semana.')) return;
+  pacientes.forEach(p => Pacientes.actualizar(p.id, cambiosBanos(p, sig, JSON.parse(JSON.stringify(banosDeSemana(p, actual))))));
+  _banoGridState = null;
+  renderVista();
+  mostrarToast('Horarios copiados a la próxima semana', 'success');
+}
+
 function borrarTodosLosBanos() {
-  const pacientes = Pacientes.activos().filter(p => (p.bañosSemana || []).length > 0);
-  if (pacientes.length === 0) { alert('No hay horarios de baño cargados.'); return; }
-  if (!confirm(`¿Borrar los horarios de baño de los ${pacientes.length} paciente${pacientes.length !== 1 ? 's' : ''} que tienen datos?`)) return;
-  pacientes.forEach(p => Pacientes.actualizar(p.id, { bañosSemana: [], bañosSemanaFecha: null }));
+  const lunes = _banoLunesSel();
+  const cuando = banosSemanaSel === 'siguiente' ? 'de la próxima semana' : 'de esta semana';
+  const pacientes = Pacientes.activos().filter(p => banosDeSemana(p, lunes).length > 0);
+  if (pacientes.length === 0) { alert(`No hay horarios de baño cargados ${cuando}.`); return; }
+  if (!confirm(`¿Borrar los horarios de baño ${cuando} de los ${pacientes.length} paciente${pacientes.length !== 1 ? 's' : ''} que tienen datos?`)) return;
+  pacientes.forEach(p => Pacientes.actualizar(p.id, cambiosBanos(p, lunes, [])));
   _banoGridState = null;
   renderVista();
 }
@@ -3221,10 +3264,9 @@ function setBanosLayout(modo) {
 }
 
 function _banosVistaPorPaciente(pacientes) {
-  // Calcular lunes de la semana actual
-  const _hoy = new Date();
-  const _diffLun = _hoy.getDay() === 0 ? 6 : _hoy.getDay() - 1;
-  const _lunes = new Date(_hoy); _lunes.setDate(_hoy.getDate() - _diffLun);
+  // Lunes de la semana seleccionada (actual o siguiente)
+  const _lunesISO = _banoLunesSel();
+  const _lunes = new Date(..._lunesISO.split('-').map((n, i) => i === 1 ? Number(n) - 1 : Number(n)));
   const _domingo = new Date(_lunes); _domingo.setDate(_lunes.getDate() + 6);
   const _fmt = d => `${d.getDate()}/${d.getMonth() + 1}`;
   const _fmtFull = d => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
@@ -3235,7 +3277,7 @@ function _banosVistaPorPaciente(pacientes) {
     const fecha = new Date(_lunes); fecha.setDate(_lunes.getDate() + offset);
     _diaFecha[d.dia] = fecha;
   });
-  const semanaLabel = `Semana del lunes ${_fmt(_lunes)} al domingo ${_fmt(_domingo)}`;
+  const semanaLabel = `${banosSemanaSel === 'siguiente' ? 'Próxima semana' : 'Semana'}: lunes ${_fmt(_lunes)} al domingo ${_fmt(_domingo)}`;
 
   const thHoras = _BANO_HORAS.map(h => {
     const fuera = !_SLOT_IDS_SET.has(h.id) ? ' bano-slot-fuera' : '';
@@ -3247,7 +3289,7 @@ function _banosVistaPorPaciente(pacientes) {
   </div>`;
 
   pacientes.forEach(pac => {
-    const banoSet = new Set((pac.bañosSemana || []).map(b => `${b.dia}:${b.slotId}`));
+    const banoSet = new Set(banosDeSemana(pac, _lunesISO).map(b => `${b.dia}:${b.slotId}`));
 
     const filas = _BANO_DIAS.map(d => {
       const celdas = _BANO_HORAS.map(h => {
@@ -3297,12 +3339,17 @@ function _banosVistaPorPaciente(pacientes) {
 function guardarBanosPac(pacId) {
   const pac = Pacientes.porId(pacId);
   if (!pac) return;
+  const lunes = _banoLunesSel();
+  const previos = new Map(banosDeSemana(pac, lunes).map(b => [`${b.dia}:${b.slotId}`, b]));
   const banos = [];
   document.querySelectorAll(`.bano-chk[data-pac="${pacId}"]`).forEach(chk => {
-    if (chk.checked) banos.push({ dia: Number(chk.dataset.dia), slotId: chk.dataset.slot });
+    if (!chk.checked) return;
+    const previo = previos.get(`${chk.dataset.dia}:${chk.dataset.slot}`);
+    banos.push({ dia: Number(chk.dataset.dia), slotId: chk.dataset.slot,
+      bloqAnterior: !!previo?.bloqAnterior, bloqSiguiente: !!previo?.bloqSiguiente });
   });
   const ahora = new Date();
-  Pacientes.actualizar(pacId, { bañosSemana: banos, bañosSemanaFecha: ahora.toISOString() });
+  Pacientes.actualizar(pacId, cambiosBanos(pac, lunes, banos));
   const label = `Actualizado: ${DIAS_SEMANA[ahora.getDay()]} ${ahora.toLocaleDateString('es-AR')}`;
   const el = document.getElementById(`bano-fecha-${pacId}`);
   if (el) el.textContent = label;
@@ -3402,9 +3449,9 @@ function guardarBanos() {
     if (!banosPorPac[id]) banosPorPac[id] = [];
     if (chk.checked) banosPorPac[id].push({ dia: Number(chk.dataset.dia), slotId: chk.dataset.slot });
   });
-  const ahora = new Date().toISOString();
+  const lunes = _banoLunesSel();
   Pacientes.activos().forEach(pac => {
-    Pacientes.actualizar(pac.id, { bañosSemana: banosPorPac[pac.id] || [], bañosSemanaFecha: ahora });
+    Pacientes.actualizar(pac.id, cambiosBanos(pac, lunes, banosPorPac[pac.id] || []));
   });
   mostrarToast('Horarios de baño guardados', 'success');
 }
@@ -3435,8 +3482,9 @@ let _banoGridState = null;
 function _cargarBanoGridState() {
   const estado = {};
   _BANO_DIAS.forEach(d => { estado[d.dia] = {}; });
+  const lunes = _banoLunesSel();
   Pacientes.activos().forEach(pac => {
-    (pac.bañosSemana || []).forEach(b => {
+    banosDeSemana(pac, lunes).forEach(b => {
       if (!estado[b.dia]) estado[b.dia] = {};
       if (!estado[b.dia][b.slotId]) estado[b.dia][b.slotId] = [];
       estado[b.dia][b.slotId].push({
@@ -3572,9 +3620,9 @@ function guardarBanoGrilla() {
     });
   });
 
-  const ahora = new Date().toISOString();
+  const lunes = _banoLunesSel();
   Pacientes.activos().forEach(pac => {
-    Pacientes.actualizar(pac.id, { bañosSemana: porPaciente[pac.id] || [], bañosSemanaFecha: ahora });
+    Pacientes.actualizar(pac.id, cambiosBanos(pac, lunes, porPaciente[pac.id] || []));
   });
 
   mostrarToast('Horarios de baño guardados', 'success');
@@ -6941,6 +6989,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   migrarHorarioAmbulatorio();
   // Migración: horarios de profesionales (día laboral sin slots → 9 slots; 13:00 desactivado)
   migrarHorariosProfesionales();
+  // Horarios de baño: migra al formato por semana y borra las semanas vencidas (solo admin)
+  limpiarBanosVencidos();
 
   // Fecha y usuario en sidebar
   document.getElementById('sidebar-fecha').textContent =

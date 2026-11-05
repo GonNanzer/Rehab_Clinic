@@ -102,20 +102,20 @@ function _esSlotExcluidoDeAuto(pac, slot) {
 
 // Slots que el perfil del paciente bloquea ese día (bloqueos del día,
 // permanentes y baño), sin considerar sesiones ni ventana ambulatoria.
-function _slotsBloqueadosPaciente(pac, estado, dia) {
+function _slotsBloqueadosPaciente(pac, estado, dia, fecha) {
   const tmp = { [pac.id]: {} };
   ((estado.bloquesPacientes || {})[pac.id] || []).forEach(b => { tmp[pac.id][b.slotId] = 'BLOQUEADO'; });
   (pac.bloqueosPermanentes || []).forEach(b => { if (!tmp[pac.id][b.slotId]) tmp[pac.id][b.slotId] = 'BLOQ_PERM'; });
-  _aplicarBloqueosBano(tmp, pac.id, pac.bañosSemana, dia);
+  _aplicarBloqueosBano(tmp, pac.id, banosParaFecha(pac, fecha), dia);
   return tmp[pac.id];
 }
 
 // Cantidad de sesiones que el paciente debe tener ese día. Un ambulatorio
 // presente necesita una por cada slot libre de su ventana; el resto, el objetivo fijo.
-function _horasObjetivoPaciente(pac, estado, dia) {
+function _horasObjetivoPaciente(pac, estado, dia, fecha) {
   const v = _ventanaAmbulatoria(pac, dia);
   if (!v) return HORAS_OBJETIVO_DIA;
-  const bloq = _slotsBloqueadosPaciente(pac, estado, dia);
+  const bloq = _slotsBloqueadosPaciente(pac, estado, dia, fecha);
   let n = 0;
   for (let i = v.iIng; i <= v.iEgr; i++) if (!bloq[SLOTS[i].id]) n++;
   return n;
@@ -1010,7 +1010,7 @@ function _prepararPacienteDia(paciente, S) {
   const fijasDelPac = sesiones.filter(s => s.fijo === true && s.pacienteId === paciente.id).length;
   // Ambulatorio: tantas sesiones como slots libres tenga su ventana. Resto: objetivo fijo.
   const horasNecesarias = esAmb
-    ? Math.max(0, _horasObjetivoPaciente(paciente, estado, diaActual) - fijasDelPac)
+    ? Math.max(0, _horasObjetivoPaciente(paciente, estado, diaActual, fecha) - fijasDelPac)
     : Math.max(0, HORAS_OBJETIVO_DIA - fijasDelPac);
   // Saltear pacientes cuyos slots fijos ya cubrieron todas las necesidades
   if (!esAmb && fijasDelPac >= HORAS_OBJETIVO_DIA) return null;
@@ -1235,7 +1235,7 @@ function generarAgenda(fecha, opciones = {}) {
 
   // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
-    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
+    _aplicarBloqueosBano(patientSlots, p.id, banosParaFecha(p, fecha), diaActual);
   });
 
   // Los ambulatorios presentes se resuelven primero (siempre, también en las
@@ -1361,7 +1361,7 @@ function sugerenciaRapidaCupo(fecha) {
   const internados = pacientes.filter(p => !p.esAmbulatorio);
   const ambulatorios = pacientes
     .filter(p => _ventanaAmbulatoria(p, dia))
-    .reduce((n, p) => n + _horasObjetivoPaciente(p, estado, dia), 0);
+    .reduce((n, p) => n + _horasObjetivoPaciente(p, estado, dia, fecha), 0);
   const rutinas = internados.reduce((n, p) => n + (p.requiereHigiene ? 1 : 0) + (p.requiereAlmuerzoTerapeutico ? 1 : 0), 0);
   const fijas = Asignaciones.delDia(fecha).filter(s => s.fijo === true).length;
 
@@ -1461,7 +1461,7 @@ function generarAgendaSlotPorSlot(fecha) {
 
   // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
   todosPacientes.forEach(p => {
-    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
+    _aplicarBloqueosBano(patientSlots, p.id, banosParaFecha(p, fecha), diaActual);
   });
 
   sesionesFijas.forEach(s => {
@@ -1768,7 +1768,7 @@ function mejoraLocal(fecha) {
 
     // Bloquear slots de baño semanal (+ hora anterior/siguiente si corresponde)
     todosPacientes.forEach(p => {
-      _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, _diaActual);
+      _aplicarBloqueosBano(patientSlots, p.id, banosParaFecha(p, fecha), _diaActual);
     });
 
     ss.forEach(s => {
@@ -2006,7 +2006,7 @@ function _reconstruirMapsDelDia(fecha, sesionesHoy, profsDisponibles, todosPacie
   }
   _aplicarVentanaAmbulatoria(patientSlots, todosPacientes, diaActual);
   todosPacientes.forEach(p => {
-    _aplicarBloqueosBano(patientSlots, p.id, p.bañosSemana, diaActual);
+    _aplicarBloqueosBano(patientSlots, p.id, banosParaFecha(p, fecha), diaActual);
   });
 
   sesionesHoy.forEach(s => {
@@ -2264,7 +2264,7 @@ function verificarCoberturaAmbulatorios(fecha) {
         avisos.push(`${nombre}: es ambulatorio pero no tiene disciplinas en su plan semanal.`);
         return;
       }
-      const bloq = _slotsBloqueadosPaciente(pac, estado, dia);
+      const bloq = _slotsBloqueadosPaciente(pac, estado, dia, fecha);
       const libres = [];
       for (let i = v.iIng; i <= v.iEgr; i++) if (!bloq[SLOTS[i].id]) libres.push(SLOTS[i].id);
       infos.push({ pac, nombre, discs, libres });

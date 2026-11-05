@@ -197,7 +197,7 @@ function _cdtEvaluar() {
     const fuera = _motivoFueraDeHorarioAmbulatorio(pac, fecha, f.slotId);
     if (fuera) return error(fuera);
 
-    const bloq = _slotsBloqueadosPaciente(pac, estadoDia, dia)[f.slotId];
+    const bloq = _slotsBloqueadosPaciente(pac, estadoDia, dia, fecha)[f.slotId];
     if (bloq) {
       const motivo = bloq === 'BAÑO' ? 'tiene su horario de baño'
                    : bloq === 'BLOQ_PERM' ? 'tiene el horario bloqueado (permanente)'

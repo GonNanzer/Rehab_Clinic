@@ -47,10 +47,91 @@ function leerStorage(clave, valorDefault) {
 // entera). Sus cambios de baños viajan por la RPC guardar_banos_pacientes, que solo
 // toca bañosSemana/bañosSemanaFecha y registra la auditoría en el mismo paso.
 
+// ── Horarios de baño por semana ──────────────────────────────────────────────
+// Cada paciente guarda sus baños por semana calendario (lunes a domingo):
+//   paciente.bañosPorSemana = { 'YYYY-MM-DD' (lunes): [{ dia, slotId, bloqAnterior, bloqSiguiente }] }
+// Así se puede cargar la semana siguiente por adelantado y el algoritmo usa los baños de la
+// semana a la que pertenece cada fecha. Las semanas vencidas se descartan al leer (y se
+// borran de la base: ver limpiarBanosVencidos() y supabase/banos_semana_siguiente.sql).
+// Formato anterior: paciente.bañosSemana (una sola semana) + bañosSemanaFecha (cuándo se guardó).
+
+function _isoLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function hoyLocal() { return _isoLocal(new Date()); }
+
+// Lunes (YYYY-MM-DD) de la semana que contiene a `fecha` (YYYY-MM-DD o Date). Hora local.
+function lunesDeSemana(fecha) {
+  let d;
+  if (typeof fecha === 'string') {
+    const [y, m, dd] = fecha.split('-').map(Number);
+    d = new Date(y, m - 1, dd, 12);
+  } else {
+    d = new Date(fecha);
+    d.setHours(12, 0, 0, 0);
+  }
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return _isoLocal(d);
+}
+
+function sumarDiasISO(iso, n) {
+  const [y, m, dd] = iso.split('-').map(Number);
+  return _isoLocal(new Date(y, m - 1, dd + n, 12));
+}
+
+// Mapa { lunes: [baños] } de las semanas vigentes (actual y futuras) de un paciente.
+// Convierte el formato anterior y descarta lo vencido.
+function _banosMapaVigente(p) {
+  const lunesActual = lunesDeSemana(hoyLocal());
+  let mapa = p?.bañosPorSemana;
+  if (!mapa || typeof mapa !== 'object') {
+    mapa = {};
+    const legado = p?.bañosSemana;
+    if (Array.isArray(legado) && legado.length) {
+      const guardado = p.bañosSemanaFecha ? lunesDeSemana(new Date(p.bañosSemanaFecha)) : lunesActual;
+      if (guardado >= lunesActual) mapa[lunesActual] = legado; // guardado esta semana → es la actual
+    }
+  }
+  const vigente = {};
+  Object.keys(mapa).forEach(l => { if (l >= lunesActual && (mapa[l] || []).length) vigente[l] = mapa[l]; });
+  return vigente;
+}
+
+function banosDeSemana(p, lunes) { return _banosMapaVigente(p)[lunes] || []; }
+function banosParaFecha(p, fecha) { return banosDeSemana(p, lunesDeSemana(fecha || hoyLocal())); }
+
+// Campos a pasar a Pacientes.actualizar para fijar los baños de una semana.
+function cambiosBanos(p, lunes, banos) {
+  const mapa = _banosMapaVigente(p);
+  if (banos && banos.length) mapa[lunes] = banos; else delete mapa[lunes];
+  return { bañosPorSemana: mapa, bañosSemana: undefined, bañosSemanaFecha: new Date().toISOString() };
+}
+
+// Borra de la base las semanas vencidas (y migra el formato anterior). Solo admin.
+// Los datos vencidos ya no se usan aunque sigan guardados: esto es limpieza.
+function limpiarBanosVencidos() {
+  const rol = (typeof usuarioActual !== 'undefined' && usuarioActual) ? usuarioActual.rol : null;
+  if (rol !== 'admin') return;
+  let hayCambios = false;
+  const limpios = Pacientes.todos().map(p => {
+    if (p.bañosPorSemana === undefined && !('bañosSemana' in p)) return p;
+    const vigente = _banosMapaVigente(p);
+    const igual = p.bañosPorSemana && !('bañosSemana' in p) &&
+      JSON.stringify(Object.keys(p.bañosPorSemana).sort()) === JSON.stringify(Object.keys(vigente).sort());
+    if (igual) return p;
+    hayCambios = true;
+    const { bañosSemana, ...resto } = p;
+    return { ...resto, bañosPorSemana: vigente };
+  });
+  if (hayCambios) escribirStorage(STORAGE_KEYS.pacientes, limpios);
+}
+
 function _clavesBanos(p) {
-  return JSON.stringify((p?.bañosSemana || [])
+  const mapa = _banosMapaVigente(p);
+  return JSON.stringify(Object.keys(mapa).sort().map(l => [l, (mapa[l] || [])
     .map(b => `${b.dia}|${b.slotId}|${b.bloqAnterior ? 1 : 0}|${b.bloqSiguiente ? 1 : 0}`)
-    .sort());
+    .sort()]));
 }
 
 // Pacientes cuyos baños cambiaron entre dos versiones de la lista (ignora la fecha de guardado).
@@ -59,20 +140,36 @@ function _pacientesConBanosCambiados(antes, despues) {
   return (despues || []).filter(p => previos.has(p.id) && _clavesBanos(previos.get(p.id)) !== _clavesBanos(p));
 }
 
-function _entradaAuditoriaBanos(cambiados) {
+// Lunes de las semanas cuyos baños cambiaron en alguno de esos pacientes.
+function _semanasConBanosCambiados(antes, cambiados) {
+  const previos = new Map((antes || []).map(p => [p.id, p]));
+  const semanas = new Set();
+  cambiados.forEach(p => {
+    const a = _banosMapaVigente(previos.get(p.id)), d = _banosMapaVigente(p);
+    new Set([...Object.keys(a), ...Object.keys(d)]).forEach(l => {
+      if (_clavesBanos({ bañosPorSemana: { [l]: a[l] || [] } }) !== _clavesBanos({ bañosPorSemana: { [l]: d[l] || [] } })) semanas.add(l);
+    });
+  });
+  return [...semanas].sort();
+}
+
+function _entradaAuditoriaBanos(cambiados, semanas) {
   const u = (typeof usuarioActual !== 'undefined') ? usuarioActual : null;
   const nombres = cambiados.slice(0, 5).map(p => (typeof apeNom === 'function' ? apeNom(p) : p.id)).join(', ');
   const resto = cambiados.length > 5 ? ` y ${cambiados.length - 5} más` : '';
+  const fmt = l => { const [, m, d] = l.split('-'); return `${Number(d)}/${Number(m)}`; };
+  const semTxt = semanas.length ? ` · semana${semanas.length > 1 ? 's' : ''} del ${semanas.map(fmt).join(', ')}` : '';
   return {
     id: genId(),
     timestamp: new Date().toISOString(),
     consensuado: null,
     tipo: 'modificacion_banos',
     descripcion: `Horarios de baño modificados por ${u?.email || 'un usuario'}` +
-      `${u?.rol === 'enfermeria' ? ' (Enfermería)' : ''}: ${cambiados.length} paciente${cambiados.length !== 1 ? 's' : ''} — ${nombres}${resto}`,
+      `${u?.rol === 'enfermeria' ? ' (Enfermería)' : ''}: ${cambiados.length} paciente${cambiados.length !== 1 ? 's' : ''} — ${nombres}${resto}${semTxt}`,
     usuario: u?.email || null,
     rol: u?.rol || null,
-    pacientesIds: cambiados.map(p => p.id)
+    pacientesIds: cambiados.map(p => p.id),
+    semanas
   };
 }
 
@@ -81,11 +178,11 @@ function _auditarYSincronizarBanos(antes, despues) {
   if (!u) return; // viewer / migración: sin usuario no se audita
   const cambiados = _pacientesConBanosCambiados(antes, despues);
   if (cambiados.length === 0) return;
-  const entrada = _entradaAuditoriaBanos(cambiados);
+  const entrada = _entradaAuditoriaBanos(cambiados, _semanasConBanosCambiados(antes, cambiados));
 
   if (u.rol === 'enfermeria') {
     const porPaciente = Object.fromEntries(cambiados.map(p =>
-      [p.id, { 'bañosSemana': p.bañosSemana || [], 'bañosSemanaFecha': p.bañosSemanaFecha || null }]));
+      [p.id, { 'bañosPorSemana': _banosMapaVigente(p), 'bañosSemanaFecha': p.bañosSemanaFecha || null }]));
     if (typeof supabaseClient === 'undefined') return;
     supabaseClient.rpc('guardar_banos_pacientes', { p_banos: porPaciente, p_auditoria: entrada })
       .then(({ error }) => {
