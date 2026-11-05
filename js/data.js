@@ -42,8 +42,70 @@ function leerStorage(clave, valorDefault) {
   return valor !== undefined ? valor : valorDefault;
 }
 
+// ─── Horarios de baño: auditoría y escritura de Enfermería ───────────────────
+// Enfermería no puede escribir la tabla pacientes (el sync reemplaza la colección
+// entera). Sus cambios de baños viajan por la RPC guardar_banos_pacientes, que solo
+// toca bañosSemana/bañosSemanaFecha y registra la auditoría en el mismo paso.
+
+function _clavesBanos(p) {
+  return JSON.stringify((p?.bañosSemana || [])
+    .map(b => `${b.dia}|${b.slotId}|${b.bloqAnterior ? 1 : 0}|${b.bloqSiguiente ? 1 : 0}`)
+    .sort());
+}
+
+// Pacientes cuyos baños cambiaron entre dos versiones de la lista (ignora la fecha de guardado).
+function _pacientesConBanosCambiados(antes, despues) {
+  const previos = new Map((antes || []).map(p => [p.id, p]));
+  return (despues || []).filter(p => previos.has(p.id) && _clavesBanos(previos.get(p.id)) !== _clavesBanos(p));
+}
+
+function _entradaAuditoriaBanos(cambiados) {
+  const u = (typeof usuarioActual !== 'undefined') ? usuarioActual : null;
+  const nombres = cambiados.slice(0, 5).map(p => (typeof apeNom === 'function' ? apeNom(p) : p.id)).join(', ');
+  const resto = cambiados.length > 5 ? ` y ${cambiados.length - 5} más` : '';
+  return {
+    id: genId(),
+    timestamp: new Date().toISOString(),
+    consensuado: null,
+    tipo: 'modificacion_banos',
+    descripcion: `Horarios de baño modificados por ${u?.email || 'un usuario'}` +
+      `${u?.rol === 'enfermeria' ? ' (Enfermería)' : ''}: ${cambiados.length} paciente${cambiados.length !== 1 ? 's' : ''} — ${nombres}${resto}`,
+    usuario: u?.email || null,
+    rol: u?.rol || null,
+    pacientesIds: cambiados.map(p => p.id)
+  };
+}
+
+function _auditarYSincronizarBanos(antes, despues) {
+  const u = (typeof usuarioActual !== 'undefined') ? usuarioActual : null;
+  if (!u) return; // viewer / migración: sin usuario no se audita
+  const cambiados = _pacientesConBanosCambiados(antes, despues);
+  if (cambiados.length === 0) return;
+  const entrada = _entradaAuditoriaBanos(cambiados);
+
+  if (u.rol === 'enfermeria') {
+    const porPaciente = Object.fromEntries(cambiados.map(p =>
+      [p.id, { 'bañosSemana': p.bañosSemana || [], 'bañosSemanaFecha': p.bañosSemanaFecha || null }]));
+    if (typeof supabaseClient === 'undefined') return;
+    supabaseClient.rpc('guardar_banos_pacientes', { p_banos: porPaciente, p_auditoria: entrada })
+      .then(({ error }) => {
+        if (error) throw error;
+      })
+      .catch(err => {
+        console.error('Error guardando horarios de baño:', err);
+        if (typeof mostrarToast === 'function') mostrarToast('No se pudieron guardar los horarios de baño. Revisá la conexión e intentá de nuevo.', 'error');
+      });
+  } else {
+    Auditoria.registrar(entrada); // admin / admin de área: pasa por el sync normal
+  }
+}
+
 function escribirStorage(clave, valor) {
   const campo = _claveACampo[clave];
+  if (campo === 'pacientes') {
+    try { _auditarYSincronizarBanos(_cache.pacientes, valor); }
+    catch (err) { console.error('Error auditando horarios de baño:', err); }
+  }
   _cache[campo] = valor;
 
   if (typeof onDataChanged === 'function') onDataChanged();
