@@ -269,6 +269,12 @@ body.rol-admin .pro-only    { display: none; }
 /* Profesional ve solo items pro */
 body.rol-profesional .pro-only   { display: flex; }
 body.rol-profesional .admin-only { display: none; }
+/* Enfermería: solo el ítem de Horarios de Baño (y el grupo que lo contiene) */
+body.rol-enfermeria .admin-only { display: none; }
+body.rol-enfermeria .admin-only.enf-only { display: flex; }
+body.rol-enfermeria .nav-group:has(.enf-only) { display: block; }
+body.rol-enfermeria .nav-group:has(.enf-only) .nav-parent { display: none; }
+body.rol-enfermeria .nav-group:has(.enf-only) .nav-children { display: block; max-height: none; opacity: 1; visibility: visible; position: static; }
 /* Admin de área: menú de profesional + "Nueva sesión fija" */
 body.rol-admin_area .pro-only  { display: flex; }
 body.rol-admin_area .area-only { display: flex; }

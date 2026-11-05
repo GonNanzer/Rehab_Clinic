@@ -146,6 +146,9 @@ const _VISTAS_CREAR = new Set(['grilla','sesionRapida']);
 const _esRolPro   = rol => rol === 'profesional' || rol === 'admin_area';
 const _puedeCrear = rol => rol === 'admin' || rol === 'admin_area';
 const _esAdminArea = () => usuarioActual?.rol === 'admin_area';
+// Enfermería: solo Horarios de Baño. Sin profesional vinculado → fuera de la asignación de terapias.
+const _VISTAS_ENFERMERIA = new Set(['banos']);
+const _esEnfermeria = rol => rol === 'enfermeria';
 // Disciplinas que el usuario puede usar al crear sesiones: null = todas (admin);
 // admin de área = las del profesional al que está vinculado.
 function _disciplinasPermitidas() {
@@ -160,7 +163,8 @@ function _discPermitida(disc) {
 
 function navegarA(vista) {
   const rol = usuarioActual?.rol;
-  if (_VISTAS_ADMIN.has(vista) && rol !== 'admin') return;
+  if (_esEnfermeria(rol) && !_VISTAS_ENFERMERIA.has(vista)) return;
+  if (_VISTAS_ADMIN.has(vista) && rol !== 'admin' && !(_esEnfermeria(rol) && _VISTAS_ENFERMERIA.has(vista))) return;
   if (_VISTAS_PRO.has(vista)   && !_esRolPro(rol)) return;
   if (_VISTAS_CREAR.has(vista) && !_puedeCrear(rol)) return;
   if (modoRotacion) cancelarModoRotacion();
@@ -195,7 +199,8 @@ function renderVista() {
   if (vistaActiva !== 'disponibilidad') _dispLastRefreshFecha = null;
   const contenedor = document.getElementById('vista');
   const _rol = usuarioActual?.rol;
-  if (_VISTAS_ADMIN.has(vistaActiva) && _rol !== 'admin') { contenedor.innerHTML = ''; return; }
+  if (_esEnfermeria(_rol) && !_VISTAS_ENFERMERIA.has(vistaActiva)) { contenedor.innerHTML = ''; return; }
+  if (_VISTAS_ADMIN.has(vistaActiva) && _rol !== 'admin' && !(_esEnfermeria(_rol) && _VISTAS_ENFERMERIA.has(vistaActiva))) { contenedor.innerHTML = ''; return; }
   if (_VISTAS_PRO.has(vistaActiva)   && !_esRolPro(_rol)) { contenedor.innerHTML = ''; return; }
   if (_VISTAS_CREAR.has(vistaActiva) && !_puedeCrear(_rol)) { contenedor.innerHTML = ''; return; }
   switch (vistaActiva) {
@@ -614,7 +619,7 @@ function vistaGrilla() {
 }
 
 function deshacerAgenda() {
-  if (_esAdminArea()) return; // el deshacer es global: solo admin
+  if (_esAdminArea() || _esEnfermeria(usuarioActual?.rol)) return; // el deshacer es global: solo admin
   if (!Asignaciones.puedeDeshacer()) {
     mostrarToast('No hay acciones para deshacer', 'warning');
     return;
@@ -5676,6 +5681,7 @@ function vistaAuditoria() {
 
   const iconos = {
     generacion_automatica: '⚡',
+    modificacion_banos:    '🛁',
     modificacion_manual:   '✏️',
     eliminacion:           '🗑'
   };
@@ -6161,6 +6167,8 @@ function vistaUsuarios() {
       ? '<span class="badge rol-badge-admin-area">Admin de área</span>'
       : u.rol === 'profesional'
       ? '<span class="badge rol-badge-profesional">Profesional</span>'
+      : u.rol === 'enfermeria'
+      ? '<span class="badge rol-badge-profesional">Enfermería</span>'
       : '<span class="badge rol-badge-pendiente">Pendiente</span>';
 
     const profVinculado = u.profesional_id
@@ -6236,6 +6244,7 @@ function abrirModalAprobar(uid, email, rolActual = 'pendiente', profIdActual = '
         <select id="modal-usr-rol" class="select-field">
           <option value="profesional" ${rolActual === 'profesional' ? 'selected' : ''}>Profesional</option>
           <option value="admin_area"  ${rolActual === 'admin_area'  ? 'selected' : ''}>Admin de área</option>
+          <option value="enfermeria"  ${rolActual === 'enfermeria'  ? 'selected' : ''}>Enfermería</option>
           <option value="admin"       ${rolActual === 'admin'       ? 'selected' : ''}>Admin</option>
         </select>
       </div>
@@ -6908,6 +6917,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.add('rol-' + usuario.rol);
   // Los profesionales empiezan en "Mi agenda", no en la grilla
   if (_esRolPro(usuario.rol)) vistaActiva = 'mi-agenda';
+  if (_esEnfermeria(usuario.rol)) vistaActiva = 'banos';
 
   // 2. Cargar datos desde Supabase antes de dibujar nada
   document.getElementById('app').classList.add('cargando-datos');

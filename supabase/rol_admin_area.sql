@@ -26,8 +26,9 @@ drop policy if exists "area_admin_asignaciones" on asignaciones;
 create policy "area_admin_asignaciones" on asignaciones
   for all using (is_area_admin()) with check (is_area_admin());
 drop policy if exists "area_admin_auditoria" on auditoria;
+-- ALL (no solo insert): la app sincroniza auditoria con upsert + delete de la colección completa.
 create policy "area_admin_auditoria" on auditoria
-  for insert with check (is_area_admin());
+  for all using (is_area_admin()) with check (is_area_admin());
 drop policy if exists "area_admin_historial" on historial;
 create policy "area_admin_historial" on historial
   for insert with check (is_area_admin());
