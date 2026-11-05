@@ -418,7 +418,9 @@ const Pacientes = {
   },
 
   actualizar(id, cambios) {
-    const lista = this.todos();
+    // Copia de la lista (no mutar el cache en el lugar): escribirStorage compara la
+    // versión anterior contra la nueva para auditar y sincronizar los baños.
+    const lista = [...this.todos()];
     const idx = lista.findIndex(p => p.id === id);
     if (idx < 0) return false;
     lista[idx] = { ...lista[idx], ...cambios };
